@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "declaration": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "outDir": "dist"
+  },
+  "include": [
+    "apps/**/*.ts",
+    "agents/**/*.ts",
+    "packages/**/*.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/tests/**"
+  ]
+}

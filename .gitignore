@@ -1,2 +1,10 @@
 temp_docs/
 .codex
+node_modules/
+dist/
+coverage/
+data/
+android-client/.gradle/
+android-client/build/
+android-client/app/build/
+android-client/local.properties

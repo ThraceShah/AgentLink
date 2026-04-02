@@ -1,0 +1,32 @@
+{
+  "name": "project-iris",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "agents/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:hub": "tsx apps/hub/src/server.ts",
+    "dev:demo-agent": "tsx agents/demo-agent/src/main.ts",
+    "dev:command-agent": "tsx agents/command-agent/src/main.ts",
+    "dev:tmux-agent": "tsx agents/tmux-agent/src/main.ts",
+    "test": "vitest run",
+    "demo": "./scripts/demo/run-demo.sh",
+    "demo:tmux": "./scripts/demo/run-tmux-demo.sh"
+  },
+  "dependencies": {
+    "ws": "^8.18.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.7.2",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
