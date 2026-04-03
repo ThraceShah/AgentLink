@@ -15,6 +15,9 @@ type ActiveCodexTask = {
   promptPath: string;
   outputPath: string;
   statusPath: string;
+  commandPromptPath: string;
+  commandOutputPath: string;
+  commandStatusPath: string;
 };
 
 const hubUrl = process.env.HUB_URL ?? "ws://127.0.0.1:8787/ws";
@@ -82,6 +85,10 @@ async function sendLiteral(text: string): Promise<void> {
   const targetPane = await resolvePane();
   await execFileAsync("tmux", ["send-keys", "-t", targetPane, "-l", text], { encoding: "utf8" });
   await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
+}
+
+async function tmuxPanePath(targetPane: string): Promise<string> {
+  return tmux(["display-message", "-p", "-t", targetPane, "#{pane_current_path}"]);
 }
 
 async function emitPromptHint(body: string, eventType: "need_approval" | "need_user_input"): Promise<void> {
@@ -187,11 +194,27 @@ async function createCodexExecTask(prompt: string): Promise<ActiveCodexTask> {
   await rm(outputPath, { force: true });
   await rm(statusPath, { force: true });
   await writeFile(promptPath, `${prompt}\n`, "utf8");
-  return { id, prompt, promptPath, outputPath, statusPath };
+  const targetPane = await resolvePane();
+  const panePath = await tmuxPanePath(targetPane);
+  return {
+    id,
+    prompt,
+    promptPath,
+    outputPath,
+    statusPath,
+    commandPromptPath: relativeShellPath(panePath, promptPath),
+    commandOutputPath: relativeShellPath(panePath, outputPath),
+    commandStatusPath: relativeShellPath(panePath, statusPath)
+  };
 }
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function relativeShellPath(fromDir: string, toPath: string): string {
+  const relative = path.relative(fromDir, toPath).replaceAll(path.sep, "/");
+  return relative || ".";
 }
 
 async function dispatchCodexExecPrompt(prompt: string): Promise<void> {
@@ -207,8 +230,8 @@ async function dispatchCodexExecPrompt(prompt: string): Promise<void> {
   lastPromptKey = "";
 
   const command = [
-    `codex exec --skip-git-repo-check -C . --sandbox workspace-write --output-last-message ${shellQuote(task.outputPath)} - < ${shellQuote(task.promptPath)}`,
-    `printf '%s\\n' $? > ${shellQuote(task.statusPath)}`
+    `codex exec --skip-git-repo-check -C . --sandbox workspace-write --output-last-message ${shellQuote(task.commandOutputPath)} - < ${shellQuote(task.commandPromptPath)}`,
+    `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
   ].join("; ");
 
   await runtime.emitEvent({

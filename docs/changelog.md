@@ -33,3 +33,4 @@
 - 新增首页“新增会话”入口：Android 可直接选择 agent profile 与会话名称，由 Hub 创建新的 tmux-backed 会话并自动注册到联系人列表。
 - 优化 Android 新建会话流程：删除首页重复入口，新增工作目录输入，并由 Hub 在默认 `~/code` 根目录下自动创建多层工作目录后再启动 tmux 会话。
 - 提升 Android 深色模式对比度，强化背景、卡片和次级文字层次，改善黑色模式下的可读性。
+- 修复 Codex bridge 在自定义 tmux 工作目录下无法回复的问题：`codex exec` 现在会使用相对于会话工作目录的临时文件路径，避免 `temp_docs/codex_bridge/...` 在非项目根目录下找不到。
