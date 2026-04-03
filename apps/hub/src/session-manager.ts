@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 export type AgentProfile = {
   id: string;
   label: string;
-  bridgeProfile: "codex" | "generic";
+  bridgeProfile: "codex" | "copilot" | "qwen" | "generic";
   command?: string;
 };
 
@@ -32,6 +32,22 @@ export class SessionManager {
         id: "codex",
         label: "codex",
         bridgeProfile: "codex"
+      });
+    }
+
+    if (await this.hasCommand("copilot")) {
+      profiles.push({
+        id: "copilot",
+        label: "copilot",
+        bridgeProfile: "copilot"
+      });
+    }
+
+    if (await this.hasCommand("qwen")) {
+      profiles.push({
+        id: "qwen",
+        label: "qwen",
+        bridgeProfile: "qwen"
       });
     }
 
@@ -185,7 +201,7 @@ export class SessionManager {
 }
 
 function defaultSessionCommand(profile: AgentProfile): string {
-  if (profile.id === "codex") {
+  if (profile.id === "codex" || profile.id === "copilot" || profile.id === "qwen") {
     return "sh";
   }
   return "sh";

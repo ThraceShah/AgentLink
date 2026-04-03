@@ -37,3 +37,6 @@
 - 新增会话删除能力：Hub 可停止指定 tmux 会话并清理联系人缓存，Android 会话页新增删除确认入口。
 - 精简 Android 会话时间线展示：默认隐藏 `task_running`、`task_completed`、`agent_started`、`agent_stopped` 这类系统过程消息。
 - 下调 tmux bridge 默认轮询间隔并缩短 Android 轮询回退间隔，减少消息完成后的额外等待时间。
+- 新增 `copilot` provider：Hub 会自动检测本机 GitHub Copilot CLI，并可直接创建 tmux-backed Copilot 会话。
+- 新增 `qwen` provider：已安装 Qwen Code CLI，并接入 tmux bridge 的非交互 prompt 模式。
+- 统一 `codex`、`copilot`、`qwen` 的 exec bridge 路径，避免 pane 回显被错误显示为聊天消息。

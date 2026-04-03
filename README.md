@@ -12,7 +12,9 @@
 - Android 原生客户端骨架：Jetpack Compose + OkHttp WebSocket
 - tmux bridge：把 tmux session / pane 接入为可控制 agent
 - tmux bridge 现已支持 `codex` profile，可直接作为本机 Codex bridge 使用
+- tmux bridge 现已支持 `copilot` 与 `qwen` profile
 - `codex` profile 默认走稳定的 `codex exec` 模式，已完成真实端到端验证
+- `copilot` 与 `qwen` profile 已完成本机端到端验证
 - 协议与架构文档
 - 本地 demo 脚本与基础测试
 
@@ -104,9 +106,11 @@ Android 客户端当前提供：
 - 联系人主标题直接使用 tmux 会话名
 - 会话时间线
 - Inbox 概览摘要与更清晰的状态层级
+- 会话删除
 - 快捷命令
 - 文本指令发送
 - 首页新增会话入口，可直接创建新的 tmux-backed Codex 会话
+- 首页新增会话入口现可选择 `codex`、`copilot`、`qwen`
 - 新建会话时支持指定相对工作目录，默认根目录为 `~/code`
 - 可配置 hub 地址
 - 图片 artifact 预览

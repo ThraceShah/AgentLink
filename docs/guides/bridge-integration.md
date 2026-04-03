@@ -114,12 +114,13 @@ TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=interactive TMUX_COMMAND='codex --no-a
 - `POST /api/sessions` 现需同时提交 `sessionName`、`profileId` 和 `workdir`。
 - `workdir` 必须是相对于工作区根目录的路径，例如 `test` 或 `tests/first_test`。
 - Hub 默认会将工作区根目录解析为 `~/code`，也可以通过 `SESSION_WORKDIR_ROOT_RELATIVE` 修改为其他相对路径。
+- 当前 Hub 会自动检测本机可用 profile，例如 `codex`、`copilot`、`qwen`。
 
 Android 首页的“新增会话”按钮实际会调用这些接口。
 
 典型流程：
 
-1. Hub 返回当前机器可用的 agent profile，例如 `codex`
+1. Hub 返回当前机器可用的 agent profile，例如 `codex`、`copilot`、`qwen`
 2. 用户输入一个会话名，例如 `codex-fix-login`
 3. Hub 创建同名 tmux session
 4. Hub 拉起对应 bridge
@@ -135,11 +136,31 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 - `TMUX_SESSION`：目标 session 名
 - `TMUX_COMMAND`：若指定，则由 bridge 创建并管理该 session
-- `TMUX_BRIDGE_PROFILE`：`generic` 或 `codex`
+- `TMUX_BRIDGE_PROFILE`：`generic`、`codex`、`copilot` 或 `qwen`
 - `TMUX_CODEX_MODE`：`exec` 或 `interactive`
 - `IRIS_TMUX_PANE`：可选，显式绑定某个 pane
 - `TMUX_POLL_MS`：轮询间隔
 - `TMUX_APPROVE_TEXT`：`approve` 命令默认发送内容
+
+## 当前 provider 支持
+
+### codex
+
+- 使用 `codex exec`
+- 适合稳定的非交互请求
+- 输出在任务结束后回传
+
+### copilot
+
+- 使用 GitHub Copilot CLI 的非交互 prompt 模式
+- 当前已完成本机端到端验证
+- 输出在任务结束后回传
+
+### qwen
+
+- 使用 Qwen Code CLI 的非交互 prompt 模式
+- 当前已完成本机端到端验证
+- 输出在任务结束后回传
 
 注意：
 

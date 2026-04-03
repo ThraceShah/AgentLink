@@ -9,7 +9,7 @@ import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
 const execFileAsync = promisify(execFile);
 
 type CodexMode = "exec" | "interactive";
-type ActiveCodexTask = {
+type ActiveExecTask = {
   id: string;
   prompt: string;
   promptPath: string;
@@ -46,7 +46,7 @@ let lastSentText = "";
 let lastUserPrompt = "";
 let latestReply = "";
 let poller: NodeJS.Timeout | undefined;
-let activeCodexTask: ActiveCodexTask | undefined;
+let activeExecTask: ActiveExecTask | undefined;
 
 async function tmux(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, { encoding: "utf8" });
@@ -128,31 +128,35 @@ async function capturePane(): Promise<void> {
   const targetPane = await resolvePane();
   const capture = await tmux(["capture-pane", "-p", "-t", targetPane, "-S", "-120"]);
   if (capture !== lastCapture) {
-    const parsed = parseCaptureDelta({
-      profile,
-      previousCapture: lastCapture,
-      currentCapture: capture,
-      lastSentText
-    });
+    const previousCapture = lastCapture;
     lastCapture = capture;
 
-    if (parsed.latestSummary) {
-      latestReply = parsed.latestSummary;
-    }
+    if (!isExecProfile(profile)) {
+      const parsed = parseCaptureDelta({
+        profile,
+        previousCapture,
+        currentCapture: capture,
+        lastSentText
+      });
 
-    if (profile !== "codex" || codexMode === "interactive") {
-      if (parsed.emittedText) {
-        await runtime.sendText(undefined, parsed.emittedText);
+      if (parsed.latestSummary) {
+        latestReply = parsed.latestSummary;
       }
-    }
 
-    if (parsed.promptHint) {
-      await emitPromptHint(parsed.promptHint.body, parsed.promptHint.eventType);
+      if (profile !== "codex" || codexMode === "interactive") {
+        if (parsed.emittedText) {
+          await runtime.sendText(undefined, parsed.emittedText);
+        }
+      }
+
+      if (parsed.promptHint) {
+        await emitPromptHint(parsed.promptHint.body, parsed.promptHint.eventType);
+      }
     }
   }
 
-  if (profile === "codex" && codexMode === "exec") {
-    await pollCodexExecTask();
+  if (isExecProfile(profile)) {
+    await pollExecTask();
   }
 
   await emitCompletionIfNeeded(targetPane);
@@ -184,7 +188,7 @@ function codexBridgeDir(): string {
   return path.join("temp_docs", "codex_bridge", sessionName);
 }
 
-async function createCodexExecTask(prompt: string): Promise<ActiveCodexTask> {
+async function createExecTask(prompt: string): Promise<ActiveExecTask> {
   const dir = codexBridgeDir();
   await mkdir(dir, { recursive: true });
   const id = `task_${Date.now()}`;
@@ -217,34 +221,31 @@ function relativeShellPath(fromDir: string, toPath: string): string {
   return relative || ".";
 }
 
-async function dispatchCodexExecPrompt(prompt: string): Promise<void> {
-  if (activeCodexTask) {
-    await runtime.sendText(undefined, "Codex is still working on the previous request.");
+async function dispatchExecPrompt(prompt: string): Promise<void> {
+  if (activeExecTask) {
+    await runtime.sendText(undefined, `${providerDisplayName(profile)} is still working on the previous request.`);
     return;
   }
 
-  const task = await createCodexExecTask(prompt);
-  activeCodexTask = task;
+  const task = await createExecTask(prompt);
+  activeExecTask = task;
   lastUserPrompt = prompt;
   lastSentText = prompt;
   lastPromptKey = "";
 
-  const command = [
-    `codex exec --skip-git-repo-check -C . --sandbox workspace-write --output-last-message ${shellQuote(task.commandOutputPath)} - < ${shellQuote(task.commandPromptPath)}`,
-    `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
-  ].join("; ");
+  const command = providerExecCommand(profile, task);
 
   await runtime.emitEvent({
     eventType: "task_running",
-    body: "Codex is working on your request.",
+    body: `${providerDisplayName(profile)} is working on your request.`,
     status: "busy"
   });
 
   await sendLiteral(command);
 }
 
-async function pollCodexExecTask(): Promise<void> {
-  const task = activeCodexTask;
+async function pollExecTask(): Promise<void> {
+  const task = activeExecTask;
   if (!task) {
     return;
   }
@@ -272,11 +273,11 @@ async function pollCodexExecTask(): Promise<void> {
   if (exitCode === 0) {
     await runtime.emitEvent({
       eventType: "task_completed",
-      body: "Codex finished the request.",
+      body: `${providerDisplayName(profile)} finished the request.`,
       status: "completed"
     });
   } else {
-    const fallback = latestReply || "Codex command failed.";
+    const fallback = latestReply || `${providerDisplayName(profile)} command failed.`;
     await runtime.emitEvent({
       eventType: "task_failed",
       body: fallback,
@@ -284,26 +285,26 @@ async function pollCodexExecTask(): Promise<void> {
     });
   }
 
-  activeCodexTask = undefined;
+  activeExecTask = undefined;
 }
 
 runtime.onCommand(async (command) => {
   const targetPane = await resolvePane();
 
-  if (profile === "codex" && codexMode === "exec") {
+  if (isExecProfile(profile)) {
     switch (command.type) {
       case "status":
         await runtime.sendText(
           undefined,
-          latestReply || (activeCodexTask
-            ? "Codex is still working on the current request."
+          latestReply || (activeExecTask
+            ? `${providerDisplayName(profile)} is still working on the current request.`
             : `Attached to ${sessionName} (${targetPane}). Waiting for a prompt.`)
         );
         return;
       case "stop":
-        if (activeCodexTask) {
+        if (activeExecTask) {
           await execFileAsync("tmux", ["send-keys", "-t", targetPane, "C-c"], { encoding: "utf8" });
-          activeCodexTask = undefined;
+          activeExecTask = undefined;
         } else if (managedCommand) {
           await stopManagedSession();
         }
@@ -313,17 +314,17 @@ runtime.onCommand(async (command) => {
           await runtime.sendText(undefined, "Nothing to retry yet.");
           return;
         }
-        await dispatchCodexExecPrompt(lastUserPrompt);
+        await dispatchExecPrompt(lastUserPrompt);
         return;
       case "approve":
-        await runtime.sendText(undefined, "Approve is not used in codex exec mode.");
+        await runtime.sendText(undefined, `Approve is not used in ${providerDisplayName(profile)} prompt mode.`);
         return;
       case "send_text":
         if (!command.text?.trim()) {
           await runtime.sendText(undefined, "Please send a non-empty instruction.");
           return;
         }
-        await dispatchCodexExecPrompt(command.text.trim());
+        await dispatchExecPrompt(command.text.trim());
         return;
     }
   }
@@ -405,11 +406,14 @@ function defaultDisplayName(currentSessionName: string): string {
 }
 
 function defaultKind(currentProfile: BridgeProfile): string {
-  return currentProfile === "codex" ? "codex" : "tmux";
+  if (currentProfile === "codex" || currentProfile === "copilot" || currentProfile === "qwen") {
+    return currentProfile;
+  }
+  return "tmux";
 }
 
 function defaultAgentId(currentProfile: BridgeProfile, currentSessionName: string): string {
-  if (currentProfile === "codex") {
+  if (currentProfile === "codex" || currentProfile === "copilot" || currentProfile === "qwen") {
     return currentSessionName;
   }
   return `tmux-${currentSessionName}`;
@@ -419,5 +423,43 @@ function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: 
   if (currentProfile === "codex") {
     return currentCodexMode === "exec" ? "sh" : "codex --no-alt-screen";
   }
+  if (currentProfile === "copilot" || currentProfile === "qwen") {
+    return "sh";
+  }
   return undefined;
+}
+
+function isExecProfile(currentProfile: BridgeProfile): boolean {
+  return currentProfile === "copilot" || currentProfile === "qwen" || (currentProfile === "codex" && codexMode === "exec");
+}
+
+function providerDisplayName(currentProfile: BridgeProfile): string {
+  return currentProfile === "codex" ? "Codex" : currentProfile === "copilot" ? "Copilot" : currentProfile === "qwen" ? "Qwen" : "Agent";
+}
+
+function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask): string {
+  if (currentProfile === "codex") {
+    return [
+      `codex exec --skip-git-repo-check -C . --sandbox workspace-write --output-last-message ${shellQuote(task.commandOutputPath)} - < ${shellQuote(task.commandPromptPath)}`,
+      `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
+    ].join("; ");
+  }
+
+  if (currentProfile === "copilot") {
+    return [
+      `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
+      `copilot -p \"$prompt\" --allow-all --add-dir . -s > ${shellQuote(task.commandOutputPath)}`,
+      `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
+    ].join("; ");
+  }
+
+  if (currentProfile === "qwen") {
+    return [
+      `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
+      `qwen -p \"$prompt\" --yolo --add-dir . -o text > ${shellQuote(task.commandOutputPath)}`,
+      `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
+    ].join("; ");
+  }
+
+  throw new Error(`unsupported exec profile: ${currentProfile}`);
 }

@@ -1207,6 +1207,7 @@ private fun messageBubbleColors(event: TimelineEvent): Pair<Color, Color> {
 private fun prettyAgentLabel(agent: AgentSnapshot): String {
     return when (agent.kind.lowercase()) {
         "codex", "codex-bridge" -> "codex"
+        "copilot", "github-copilot", "github_copilot" -> "copilot"
         "qwen", "qwen-cli", "qwen-coder" -> "qwen"
         "tmux", "tmux-agent" -> "tmux"
         else -> agent.kind.lowercase()
