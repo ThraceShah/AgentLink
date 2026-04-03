@@ -118,16 +118,17 @@ class HubRepository(
         })
     }
 
-    fun sendCommand(agentId: String, type: String, text: String? = null) {
+    fun sendCommand(agentId: String, type: String, text: String? = null, commandId: String = UUID.randomUUID().toString()): String {
         val payload = CommandEnvelope(
             agentId = agentId,
             command = CommandPayload(
-                id = UUID.randomUUID().toString(),
+                id = commandId,
                 type = type,
                 text = text
             )
         )
         postCommand(payload)
+        return commandId
     }
 
     fun resolveArtifactUrl(path: String): String {

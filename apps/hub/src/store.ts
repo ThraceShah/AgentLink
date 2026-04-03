@@ -60,7 +60,9 @@ export class HubStore {
 
   appendEvent(event: TimelineEvent): TimelineEvent {
     const currentEvents = this.events.get(event.agentId) ?? [];
-    const next = [...currentEvents, event].slice(-this.maxEventsPerAgent);
+    const next = [...currentEvents.filter((item) => item.id !== event.id), event]
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+      .slice(-this.maxEventsPerAgent);
     this.events.set(event.agentId, next);
 
     const snapshot = this.agents.get(event.agentId);

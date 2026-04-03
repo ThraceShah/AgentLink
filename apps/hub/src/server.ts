@@ -272,7 +272,7 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
     }
 
     const userEvent = store.appendEvent({
-      id: createId("evt"),
+      id: `user_${message.command.id}`,
       agentId: message.agentId,
       eventType: "user_command",
       timestamp: nowIso(),

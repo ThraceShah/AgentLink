@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 
 import { AgentRuntime } from "../../../packages/sdk/src/index.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
+import { parseProviderStream } from "./stream-parser.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -15,9 +16,11 @@ type ActiveExecTask = {
   promptPath: string;
   outputPath: string;
   statusPath: string;
+  eventId: string;
   commandPromptPath: string;
   commandOutputPath: string;
   commandStatusPath: string;
+  emittedText: string;
 };
 
 const hubUrl = process.env.HUB_URL ?? "ws://127.0.0.1:8787/ws";
@@ -206,9 +209,11 @@ async function createExecTask(prompt: string): Promise<ActiveExecTask> {
     promptPath,
     outputPath,
     statusPath,
+    eventId: `stream_${id}`,
     commandPromptPath: relativeShellPath(panePath, promptPath),
     commandOutputPath: relativeShellPath(panePath, outputPath),
-    commandStatusPath: relativeShellPath(panePath, statusPath)
+    commandStatusPath: relativeShellPath(panePath, statusPath),
+    emittedText: ""
   };
 }
 
@@ -250,6 +255,25 @@ async function pollExecTask(): Promise<void> {
     return;
   }
 
+  let outputContent = "";
+  try {
+    outputContent = await readFile(task.outputPath, "utf8");
+  } catch {
+    outputContent = "";
+  }
+
+  const streamSnapshot = parseProviderStream(profile, outputContent);
+  const candidateText = streamSnapshot.partialText?.trim();
+  if (candidateText && candidateText != task.emittedText) {
+    task.emittedText = candidateText;
+    latestReply = candidateText;
+    await runtime.emitEvent({
+      id: task.eventId,
+      eventType: "text_output",
+      body: candidateText
+    });
+  }
+
   let statusText: string | undefined;
   try {
     statusText = (await readFile(task.statusPath, "utf8")).trim();
@@ -257,17 +281,16 @@ async function pollExecTask(): Promise<void> {
     return;
   }
 
-  let reply = "";
-  try {
-    reply = (await readFile(task.outputPath, "utf8")).trim();
-  } catch {
-    reply = "";
-  }
-
   const exitCode = Number(statusText || "1");
-  if (reply) {
-    latestReply = reply;
-    await runtime.sendText(undefined, reply);
+  const finalText = streamSnapshot.finalText?.trim() || "";
+  if (finalText && finalText != task.emittedText) {
+    task.emittedText = finalText;
+    latestReply = finalText;
+    await runtime.emitEvent({
+      id: task.eventId,
+      eventType: "text_output",
+      body: finalText
+    });
   }
 
   if (exitCode === 0) {
@@ -440,7 +463,7 @@ function providerDisplayName(currentProfile: BridgeProfile): string {
 function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask): string {
   if (currentProfile === "codex") {
     return [
-      `codex exec --skip-git-repo-check -C . --sandbox workspace-write --output-last-message ${shellQuote(task.commandOutputPath)} - < ${shellQuote(task.commandPromptPath)}`,
+      `codex exec --skip-git-repo-check -C . --sandbox workspace-write --json - < ${shellQuote(task.commandPromptPath)} > ${shellQuote(task.commandOutputPath)}`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");
   }
@@ -448,7 +471,7 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
   if (currentProfile === "copilot") {
     return [
       `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
-      `copilot -p \"$prompt\" --allow-all --add-dir . -s > ${shellQuote(task.commandOutputPath)}`,
+      `copilot -p \"$prompt\" --allow-all --add-dir . --output-format json --stream on > ${shellQuote(task.commandOutputPath)}`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");
   }
@@ -456,7 +479,7 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
   if (currentProfile === "qwen") {
     return [
       `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
-      `qwen -p \"$prompt\" --yolo --add-dir . -o text > ${shellQuote(task.commandOutputPath)}`,
+      `qwen -p \"$prompt\" --yolo --add-dir . -o stream-json --include-partial-messages > ${shellQuote(task.commandOutputPath)}`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");
   }

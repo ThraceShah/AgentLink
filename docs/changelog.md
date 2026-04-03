@@ -40,3 +40,6 @@
 - 新增 `copilot` provider：Hub 会自动检测本机 GitHub Copilot CLI，并可直接创建 tmux-backed Copilot 会话。
 - 新增 `qwen` provider：已安装 Qwen Code CLI，并接入 tmux bridge 的非交互 prompt 模式。
 - 统一 `codex`、`copilot`、`qwen` 的 exec bridge 路径，避免 pane 回显被错误显示为聊天消息。
+- 新增本地乐观用户消息：Android 在点击发送后会立即显示用户消息，并与服务端确认事件按同一 ID 去重。
+- 新增第一版 JSON streaming bridge：`qwen` 与 `copilot` 可从 JSON 输出中持续提取 assistant 文本增量并更新同一条消息。
+- `codex` 已统一接入 JSON bridge 路径，当前保留稳定的最终消息回传模式，为后续更强的交互式桥接预留结构。

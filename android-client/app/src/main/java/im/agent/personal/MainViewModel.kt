@@ -3,6 +3,7 @@ package im.agent.personal
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -91,7 +92,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     },
                     onTimelineEvent = { event ->
                         _uiState.value = _uiState.value.copy(
-                            events = _uiState.value.events + event
+                            events = _uiState.value.events
+                                .filterNot { it.id == event.id }
+                                .plus(event)
+                                .sortedBy { it.timestamp }
                         )
                     }
                 )
@@ -114,11 +118,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendQuickCommand(agentId: String, type: String) {
-        repository?.sendCommand(agentId, type)
+        val commandId = repository?.sendCommand(agentId, type) ?: return
+        appendOptimisticUserEvent(agentId = agentId, commandId = commandId, type = type, text = null)
     }
 
     fun sendInstruction(agentId: String, text: String) {
-        repository?.sendCommand(agentId, "send_text", text)
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) {
+            return
+        }
+        val commandId = repository?.sendCommand(agentId, "send_text", trimmed) ?: return
+        appendOptimisticUserEvent(agentId = agentId, commandId = commandId, type = "send_text", text = trimmed)
     }
 
     fun createSession(profileId: String, sessionName: String, workdir: String) {
@@ -225,7 +235,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pollingJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 if (_uiState.value.socketState == SocketConnectionState.CONNECTED) {
-                delay(2000)
+                    delay(2000)
                     continue
                 }
 
@@ -252,12 +262,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val mergedAgents = bootstrap.agents.sortedByDescending { it.lastSeenAt }
         val existingEvents = _uiState.value.events.associateBy { it.id }.toMutableMap()
         for (event in bootstrap.events) {
-            existingEvents.putIfAbsent(event.id, event)
+            existingEvents[event.id] = event
         }
 
         _uiState.value = _uiState.value.copy(
             agents = mergedAgents,
             events = existingEvents.values.sortedBy { it.timestamp }
+        )
+    }
+
+    private fun appendOptimisticUserEvent(agentId: String, commandId: String, type: String, text: String?) {
+        val optimisticEvent = TimelineEvent(
+            id = "user_$commandId",
+            agentId = agentId,
+            eventType = "user_command",
+            timestamp = Instant.now().toString(),
+            title = "Command: $type",
+            body = text
+        )
+
+        _uiState.value = _uiState.value.copy(
+            events = _uiState.value.events
+                .filterNot { it.id == optimisticEvent.id }
+                .plus(optimisticEvent)
+                .sortedBy { it.timestamp }
         )
     }
 }

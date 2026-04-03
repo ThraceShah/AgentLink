@@ -20,6 +20,7 @@ type RuntimeOptions = {
 };
 
 type EventInput = {
+  id?: string;
   eventType: EventType;
   title?: string;
   body?: string;
@@ -97,7 +98,7 @@ export class AgentRuntime {
     this.send({
       type: "agent_event",
       event: {
-        id: createId("evt"),
+        id: input.id ?? createId("evt"),
         agentId: this.options.agentId,
         eventType: input.eventType,
         timestamp: nowIso(),

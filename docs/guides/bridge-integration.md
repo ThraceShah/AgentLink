@@ -146,21 +146,38 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 ### codex
 
-- 使用 `codex exec`
-- 适合稳定的非交互请求
-- 输出在任务结束后回传
+- 使用 `codex exec --json`
+- 已统一到 JSON bridge 路径
+- 当前主要回传最终 agent message
 
 ### copilot
 
-- 使用 GitHub Copilot CLI 的非交互 prompt 模式
+- 使用 GitHub Copilot CLI 的 JSON 输出模式
 - 当前已完成本机端到端验证
-- 输出在任务结束后回传
+- 可从 JSON 输出中提取 assistant 增量内容
 
 ### qwen
 
-- 使用 Qwen Code CLI 的非交互 prompt 模式
+- 使用 Qwen Code CLI 的 `stream-json` 输出模式
 - 当前已完成本机端到端验证
-- 输出在任务结束后回传
+- 可从流式 JSON 中提取 assistant 文本增量
+
+## Streaming Bridge 现状
+
+当前 bridge 已支持两类模式：
+
+### 1. 乐观用户消息
+
+- Android 在发送消息时会立刻把用户消息插入本地时间线
+- 服务端确认后会按相同事件 ID 去重，不会重复显示
+
+### 2. JSON bridge
+
+- `qwen`：支持流式部分文本更新
+- `copilot`：支持流式部分文本更新
+- `codex`：已统一到 JSON bridge，但当前以最终消息为主
+
+这意味着当前已经具备“先显示用户消息，再持续更新 agent 回复”的基本 IM 体验。
 
 注意：
 
