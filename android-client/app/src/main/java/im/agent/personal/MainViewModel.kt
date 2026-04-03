@@ -159,6 +159,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deleteSession(agentId: String) {
+        if (agentId.isBlank()) {
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                repository?.deleteSession(agentId)
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    connectionError = error.message ?: "Failed to delete session"
+                )
+            }
+
+            _uiState.value = _uiState.value.copy(
+                agents = _uiState.value.agents.filterNot { it.agentId == agentId },
+                events = _uiState.value.events.filterNot { it.agentId == agentId },
+                selectedAgentId = if (_uiState.value.selectedAgentId == agentId) null else _uiState.value.selectedAgentId
+            )
+        }
+    }
+
     fun resolveArtifactUrl(relativeUrl: String): String {
         return repository?.resolveArtifactUrl(relativeUrl) ?: relativeUrl
     }
@@ -203,7 +225,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pollingJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
                 if (_uiState.value.socketState == SocketConnectionState.CONNECTED) {
-                    delay(5000)
+                delay(2000)
                     continue
                 }
 
@@ -216,7 +238,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                delay(5000)
+                delay(2000)
             }
         }
     }

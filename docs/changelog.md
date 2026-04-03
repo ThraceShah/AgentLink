@@ -34,3 +34,6 @@
 - 优化 Android 新建会话流程：删除首页重复入口，新增工作目录输入，并由 Hub 在默认 `~/code` 根目录下自动创建多层工作目录后再启动 tmux 会话。
 - 提升 Android 深色模式对比度，强化背景、卡片和次级文字层次，改善黑色模式下的可读性。
 - 修复 Codex bridge 在自定义 tmux 工作目录下无法回复的问题：`codex exec` 现在会使用相对于会话工作目录的临时文件路径，避免 `temp_docs/codex_bridge/...` 在非项目根目录下找不到。
+- 新增会话删除能力：Hub 可停止指定 tmux 会话并清理联系人缓存，Android 会话页新增删除确认入口。
+- 精简 Android 会话时间线展示：默认隐藏 `task_running`、`task_completed`、`agent_started`、`agent_stopped` 这类系统过程消息。
+- 下调 tmux bridge 默认轮询间隔并缩短 Android 轮询回退间隔，减少消息完成后的额外等待时间。

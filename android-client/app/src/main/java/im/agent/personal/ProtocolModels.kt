@@ -114,6 +114,17 @@ data class CreateSessionResponse(
 )
 
 @Serializable
+data class DeleteSessionRequest(
+    val sessionName: String
+)
+
+@Serializable
+data class DeleteSessionResponse(
+    val sessionName: String,
+    val removedAgentId: String
+)
+
+@Serializable
 data class PruneOfflineResponse(
     val removedAgentIds: List<String>
 )

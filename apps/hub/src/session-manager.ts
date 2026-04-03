@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -63,6 +63,20 @@ export class SessionManager {
     return { sessionName, profile };
   }
 
+  async deleteSession(sessionNameInput: string): Promise<{ sessionName: string }> {
+    const sessionName = sanitizeSessionName(sessionNameInput);
+    if (!sessionName) {
+      throw new Error("session name is required");
+    }
+
+    await this.stopBridge(sessionName);
+    if (await this.tmuxSessionExists(sessionName)) {
+      await execFileAsync("tmux", ["kill-session", "-t", sessionName], { encoding: "utf8" });
+    }
+    this.runningBridges.delete(sessionName);
+    return { sessionName };
+  }
+
   private async hasCommand(command: string): Promise<boolean> {
     try {
       await execFileAsync("sh", ["-lc", `command -v ${shellToken(command)}`], {
@@ -120,6 +134,53 @@ export class SessionManager {
 
     child.unref();
     this.runningBridges.set(sessionName, child.pid ?? 0);
+  }
+
+  private async stopBridge(sessionName: string): Promise<void> {
+    const trackedPid = this.runningBridges.get(sessionName);
+    if (trackedPid) {
+      try {
+        process.kill(trackedPid, "SIGTERM");
+      } catch {
+        // Ignore missing process.
+      }
+    }
+
+    const processIds = await this.findBridgeProcessIds(sessionName);
+    for (const pid of processIds) {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // Ignore missing process.
+      }
+    }
+  }
+
+  private async findBridgeProcessIds(sessionName: string): Promise<number[]> {
+    try {
+      const { stdout } = await execFileAsync("pgrep", ["-f", "agents/tmux-agent/src/main.ts"], {
+        encoding: "utf8"
+      });
+      const ids = stdout
+        .split("\n")
+        .map((line) => Number(line.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0);
+      const matched: number[] = [];
+      for (const pid of ids) {
+        try {
+          const environ = await readFile(`/proc/${pid}/environ`, "utf8");
+          const variables = environ.split("\u0000");
+          if (variables.includes(`TMUX_SESSION=${sessionName}`)) {
+            matched.push(pid);
+          }
+        } catch {
+          // Ignore vanished process.
+        }
+      }
+      return matched;
+    } catch {
+      return [];
+    }
   }
 }
 

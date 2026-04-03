@@ -60,6 +60,13 @@ class HubRepository(
         )
     }
 
+    suspend fun deleteSession(sessionName: String): DeleteSessionResponse {
+        return post(
+            path = "/api/sessions/delete",
+            payload = DeleteSessionRequest(sessionName = sessionName)
+        )
+    }
+
     fun connect(
         onConnectionStateChange: (SocketConnectionState) -> Unit,
         onAgentDelta: (AgentSnapshot) -> Unit,

@@ -126,6 +126,7 @@ class MainActivity : ComponentActivity() {
                     onSelectAgent = viewModel::selectAgent,
                     onBackToInbox = { viewModel.selectAgent(null) },
                     onCreateSession = viewModel::createSession,
+                    onDeleteSession = viewModel::deleteSession,
                     onQuickCommand = viewModel::sendQuickCommand,
                     onSendInstruction = viewModel::sendInstruction
                 )
@@ -180,6 +181,7 @@ private fun AppContent(
     onSelectAgent: (String) -> Unit,
     onBackToInbox: () -> Unit,
     onCreateSession: (String, String, String) -> Unit,
+    onDeleteSession: (String) -> Unit,
     onQuickCommand: (String, String) -> Unit,
     onSendInstruction: (String, String) -> Unit
 ) {
@@ -208,6 +210,7 @@ private fun AppContent(
                 events = state.events.filter { it.agentId == selectedAgent.agentId },
                 resolveArtifactUrl = resolveArtifactUrl,
                 onBackToInbox = onBackToInbox,
+                onDeleteSession = onDeleteSession,
                 onQuickCommand = onQuickCommand,
                 onSendInstruction = onSendInstruction
             )
@@ -323,9 +326,12 @@ private fun ConversationScreen(
     events: List<TimelineEvent>,
     resolveArtifactUrl: (String) -> String,
     onBackToInbox: () -> Unit,
+    onDeleteSession: (String) -> Unit,
     onQuickCommand: (String, String) -> Unit,
     onSendInstruction: (String, String) -> Unit
 ) {
+    var showDeleteConfirm by rememberSaveable(agent.agentId) { mutableStateOf(false) }
+
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0),
@@ -353,6 +359,11 @@ private fun ConversationScreen(
                     TextButton(onClick = onBackToInbox) {
                         Text("Back")
                     }
+                },
+                actions = {
+                    TextButton(onClick = { showDeleteConfirm = true }) {
+                        Text("Delete")
+                    }
                 }
             )
         },
@@ -364,6 +375,33 @@ private fun ConversationScreen(
             )
         }
     ) { paddingValues ->
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Delete session") },
+                text = {
+                    Text(
+                        "This will stop the tmux session and remove this conversation from the inbox."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDeleteConfirm = false
+                            onDeleteSession(agent.agentId)
+                        }
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         val visibleEvents = remember(events) { timelineEventsForDisplay(events) }
         val listState = rememberLazyListState()
 
@@ -1147,6 +1185,10 @@ private fun timelineBody(event: TimelineEvent): String? {
 private fun timelineEventsForDisplay(events: List<TimelineEvent>): List<TimelineEvent> {
     return events.filterNot { event ->
         (event.eventType == "user_command" && event.body.isNullOrBlank())
+            || event.eventType == "task_running"
+            || event.eventType == "task_completed"
+            || event.eventType == "agent_started"
+            || event.eventType == "agent_stopped"
             || (timelineBody(event) == null && event.artifact == null)
     }
 }

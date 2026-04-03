@@ -25,7 +25,7 @@ const profile = (process.env.TMUX_BRIDGE_PROFILE ?? "generic") as BridgeProfile;
 const codexMode = ((process.env.TMUX_CODEX_MODE ?? "exec") as CodexMode);
 const sessionName = process.env.TMUX_SESSION ?? "iris-agent";
 const managedCommand = process.argv.slice(2).join(" ") || process.env.TMUX_COMMAND || defaultManagedCommand(profile, codexMode);
-const pollIntervalMs = Number(process.env.TMUX_POLL_MS ?? 3000);
+const pollIntervalMs = Number(process.env.TMUX_POLL_MS ?? 1000);
 const approveText = process.env.TMUX_APPROVE_TEXT ?? "y";
 
 const runtime = new AgentRuntime({
