@@ -92,6 +92,7 @@ Android 客户端当前提供：
 - 图片 artifact 预览
 - 调试命令探针，可通过 `adb am start` 自动触发一次命令发送
 - Android 端命令发送的 HTTP 回退通道，提升私网联调稳定性
+- 可选的 Tailscale Serve 接入模式，用于绕过部分设备对 `100.x.x.x:port` 的直连异常
 
 Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明见：
 
@@ -107,6 +108,7 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 - 本地开发：`docs/guides/local-development.md`
 - Android 调试：`docs/guides/android-debug.md`
 - 私网与 Tailscale：`docs/guides/private-network.md`
+- Tailscale Serve 回退接入：`docs/requirements/tailscale-serve-access-mode.md`
 - tmux / command 接入：`docs/guides/bridge-integration.md`
 
 ## 当前验证状态

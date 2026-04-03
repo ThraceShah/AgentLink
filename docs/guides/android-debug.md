@@ -41,6 +41,22 @@ MVP 做法：
 - 真机或局域网设备应填写宿主机实际私网地址或 Tailscale 地址
 - 若使用 adb 反向代理，也可以改填 `http://127.0.0.1:8787`
 
+若真机已经接入同一个 tailnet，但访问 `http://100.x.x.x:8787/healthz` 仍失败，例如出现 `No route to host`，可改用 Tailscale Serve 暴露出的 HTTPS 地址。该模式属于 tailnet 内访问，不依赖公网中转，但需要在 Tailscale 管理侧先开启 Serve 能力。
+
+推荐填写形式：
+
+- `https://<node>.<tailnet>.ts.net`
+
+客户端会自动把它推导为：
+
+- `wss://<node>.<tailnet>.ts.net/ws`
+
+这条路线的适用场景：
+
+- Tailscale SSH 正常
+- 原始 `100.x.x.x:8787` 无法从 Android 浏览器或 App 访问
+- 不希望继续依赖 cleartext HTTP
+
 ## 前台实时连接
 
 MVP 默认仅在应用前台维持 WebSocket。
@@ -197,3 +213,28 @@ adb shell am start \
   - 已补充 Android 连接状态展示、命令排队和 `logcat` 观测能力，便于继续定位命令投递问题
 
 因此 Android 侧已进入可继续进行 APK 安装与联调的状态，但完整 UI 验收仍待继续执行。
+
+## Tailscale Serve 回退模式
+
+当 Android 真机满足以下现象时，优先考虑该模式：
+
+- 同一台手机已登录 Tailscale
+- 可以通过 Tailscale SSH 到主机
+- 但浏览器访问 `http://100.x.x.x:8787/healthz` 失败
+
+可在 hub 主机上执行：
+
+```bash
+tailscale serve --bg http://127.0.0.1:8787
+```
+
+然后在手机上把 hub 地址改成：
+
+```text
+https://<node>.<tailnet>.ts.net
+```
+
+注意：
+
+- 若命令提示 `Serve is not enabled on your tailnet`，需要先在 Tailscale 管理侧开启 Serve
+- 这一步不是 Android 限制，而是 tailnet 功能开关未启用
