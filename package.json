@@ -14,6 +14,7 @@
     "dev:demo-agent": "tsx agents/demo-agent/src/main.ts",
     "dev:command-agent": "tsx agents/command-agent/src/main.ts",
     "dev:tmux-agent": "tsx agents/tmux-agent/src/main.ts",
+    "dev:codex-bridge": "TMUX_BRIDGE_PROFILE=codex tsx agents/tmux-agent/src/main.ts",
     "test": "vitest run",
     "demo": "./scripts/demo/run-demo.sh",
     "demo:tmux": "./scripts/demo/run-tmux-demo.sh"

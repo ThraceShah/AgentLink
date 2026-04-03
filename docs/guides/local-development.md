@@ -34,6 +34,12 @@ npm run demo
 npm run demo:tmux
 ```
 
+## 运行 Codex bridge
+
+```bash
+npm run dev:codex-bridge
+```
+
 ## Android 客户端命令行构建
 
 首次构建前，确保本机已设置：

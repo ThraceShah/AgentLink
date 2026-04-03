@@ -46,19 +46,48 @@ AGENT_EVENT {"eventType":"need_approval","title":"Review patch","body":"Please a
 ## `tmux-agent` 的能力
 
 - 将 session / pane 映射为一个 agent 联系人
-- 周期性 `capture-pane`，把最近输出摘要发到时间线
+- 周期性 `capture-pane`，提取增量输出并发到时间线
 - 检测常见 approval / input 提示并转成 `need_approval` 或 `need_user_input`
 - `send_text` 映射为 `tmux send-keys`
 - `approve` 默认发送 `y`
 - `stop` 对受管 session 执行 `kill-session`，否则发送 `Ctrl-C`
 - `retry` 对受管 session 重新创建会话
+- `status` 优先返回最近一次有效回复，而不是整屏 pane 摘要
+
+## Codex bridge 模式
+
+当前 `tmux-agent` 已支持：
+
+- `TMUX_BRIDGE_PROFILE=codex`
+
+该模式会：
+
+- 默认把 agent 标识为 `codex-bridge`
+- 在未显式提供 `TMUX_COMMAND` 时默认尝试启动 `codex`
+- 对 pane 输出做增量提取，而不是每次发送整屏摘要
+- 尽量过滤输入回显和常见过程噪音
+- 识别常见 approval / input 提示
+
+推荐启动方式：
+
+```bash
+npm run dev:codex-bridge
+```
+
+或显式指定 tmux session：
+
+```bash
+TMUX_BRIDGE_PROFILE=codex TMUX_SESSION=my-codex npm run dev:tmux-agent
+```
 
 ## 关键环境变量
 
 - `TMUX_SESSION`：目标 session 名
 - `TMUX_COMMAND`：若指定，则由 bridge 创建并管理该 session
+- `TMUX_BRIDGE_PROFILE`：`generic` 或 `codex`
 - `IRIS_TMUX_PANE`：可选，显式绑定某个 pane
 - `TMUX_POLL_MS`：轮询间隔
+- `TMUX_APPROVE_TEXT`：`approve` 命令默认发送内容
 
 注意：
 

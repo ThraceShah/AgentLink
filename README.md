@@ -11,6 +11,7 @@
 - 示例 agent：默认作为 OpenAI bridge 运行，用于演示 agent 上线、真实对话回执、产物回传、下线
 - Android 原生客户端骨架：Jetpack Compose + OkHttp WebSocket
 - tmux bridge：把 tmux session / pane 接入为可控制 agent
+- tmux bridge 现已支持 `codex` profile，可直接作为本机 Codex bridge 使用
 - 协议与架构文档
 - 本地 demo 脚本与基础测试
 
@@ -85,6 +86,12 @@ npm run demo
 
 ```bash
 npm run demo:tmux
+```
+
+### 6. 运行 Codex bridge
+
+```bash
+npm run dev:codex-bridge
 ```
 
 ## Android 客户端说明

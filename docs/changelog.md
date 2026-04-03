@@ -26,3 +26,4 @@
 - 完成 Android 客户端第二轮 UI 精修，补充 Inbox 状态摘要、会话卡片强化标签和更清晰的时间线类型标签。
 - 修复 Android 会话默认滚动方向，进入会话页时优先定位到最新消息，并精简时间线中的协议标签展示。
 - 将示例 agent 从回声逻辑升级为 OpenAI bridge；未配置 `OPENAI_API_KEY` 时会明确提示缺失条件。
+- 增强 `tmux-agent` 为第一版 Codex bridge，支持 `codex` profile、增量输出提取、最近有效回复缓存和基础提示识别。
