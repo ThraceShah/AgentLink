@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -86,6 +87,13 @@ private val appGradient = Brush.verticalGradient(
         Color(0xFF0C1016),
         Color(0xFF111722),
         Color(0xFF181E28)
+    )
+)
+
+private val inboxCardGradient = Brush.horizontalGradient(
+    colors = listOf(
+        Color(0xFF20252F),
+        Color(0xFF171C25)
     )
 )
 
@@ -249,6 +257,7 @@ private fun InboxScreen(
         ) {
             item {
                 InboxHeroCard(
+                    agents = state.agents,
                     agentCount = state.agents.size,
                     socketState = state.socketState,
                     connectionError = state.connectionError
@@ -348,16 +357,31 @@ private fun ConversationScreen(
                     resolveArtifactUrl = resolveArtifactUrl
                 )
             }
+            if (events.isEmpty()) {
+                item {
+                    EmptyTimelineCard()
+                }
+            }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun InboxHeroCard(
+    agents: List<AgentSnapshot>,
     agentCount: Int,
     socketState: SocketConnectionState,
     connectionError: String?
 ) {
+    val runningCount = agents.count { it.status.equals("busy", ignoreCase = true) || it.status.equals("running", ignoreCase = true) }
+    val waitingCount = agents.count {
+        it.status.equals("waiting_input", ignoreCase = true)
+            || it.status.equals("need_approval", ignoreCase = true)
+            || it.status.equals("need_user_input", ignoreCase = true)
+    }
+    val riskCount = agents.count { it.status.equals("failed", ignoreCase = true) || it.status.equals("offline", ignoreCase = true) }
+
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
@@ -387,6 +411,14 @@ private fun InboxHeroCard(
                     )
                 }
                 SocketStateChip(socketState)
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SummaryPill(label = "Running", value = runningCount.toString(), accent = Color(0xFFFFC76C))
+                SummaryPill(label = "Waiting", value = waitingCount.toString(), accent = Color(0xFFFF9A76))
+                SummaryPill(label = "Risk", value = riskCount.toString(), accent = Color(0xFFFF8D92))
             }
             connectionError?.let {
                 Text(
@@ -480,59 +512,97 @@ private fun AgentConversationCard(
     agent: AgentSnapshot,
     onClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-        ),
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-    ) {
-        Row(
+    Box {
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .clickable(onClick = onClick),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+            ),
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
         ) {
-            AgentAvatar(agent = agent)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(inboxCardGradient)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                AgentAvatar(agent = agent)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                agent.displayName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            agent.sessionHint?.takeIf { it.isNotBlank() }?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        Text(
+                            formatTimestamp(agent.lastSeenAt),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StatusBadge(agent.status)
+                        Text(
+                            agent.kind,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Text(
-                        agent.displayName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        formatTimestamp(agent.lastSeenAt),
-                        style = MaterialTheme.typography.bodySmall,
+                        agent.lastMessage ?: "Waiting for the next event.",
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    if (agent.capabilities.isNotEmpty()) {
+                        Text(
+                            agent.capabilities.take(3).joinToString("  ·  "),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                        )
+                    }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    StatusBadge(agent.status)
-                    Text(
-                        agent.kind,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Text(
-                    agent.lastMessage ?: "Waiting for the next event.",
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
+        }
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 14.dp)
+                .offset(y = (-8).dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = RoundedCornerShape(999.dp)
+        ) {
+            Text(
+                text = eventTone(agent.status),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
         }
     }
 }
@@ -618,12 +688,15 @@ private fun TimelineMessageCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        timelineTitle(event),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = bubbleColors.second,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        EventTypePill(event = event)
+                        Text(
+                            timelineTitle(event),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = bubbleColors.second,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Text(
                         formatTimestamp(event.timestamp),
                         style = MaterialTheme.typography.bodySmall,
@@ -757,14 +830,26 @@ private fun AgentAvatar(agent: AgentSnapshot) {
     Box(
         modifier = Modifier
             .size(50.dp)
-            .clip(CircleShape)
-            .background(accent.copy(alpha = 0.18f)),
+            .clip(CircleShape),
         contentAlignment = Alignment.Center
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(accent.copy(alpha = 0.18f))
+        )
         Text(
             text = agent.displayName.take(2).uppercase(),
             color = accent,
             fontWeight = FontWeight.Bold
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .size(12.dp)
+                .clip(CircleShape)
+                .background(accent)
+                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
         )
     }
 }
@@ -817,6 +902,86 @@ private fun SocketStateChip(socketState: SocketConnectionState) {
     }
 }
 
+@Composable
+private fun SummaryPill(label: String, value: String, accent: Color) {
+    Surface(
+        color = accent.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+            Text(
+                value,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun EventTypePill(event: TimelineEvent) {
+    val (container, content) = when (event.eventType) {
+        "user_command" -> Pair(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f), MaterialTheme.colorScheme.onPrimaryContainer)
+        "task_completed" -> Pair(Color(0xFFB7F4E8).copy(alpha = 0.18f), Color(0xFFB7F4E8))
+        "task_failed" -> Pair(Color(0xFFFFCCD1).copy(alpha = 0.18f), Color(0xFFFFCCD1))
+        "need_approval", "need_user_input" -> Pair(Color(0xFFFFE8B8).copy(alpha = 0.18f), Color(0xFFFFE8B8))
+        else -> Pair(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Surface(
+        color = container,
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            event.eventType.replace('_', ' '),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = content
+        )
+    }
+}
+
+@Composable
+private fun EmptyTimelineCard() {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f)
+        ),
+        shape = RoundedCornerShape(22.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "No messages yet",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Use a quick command or send an instruction to start this session.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 private fun quickCommandLabels(agent: AgentSnapshot): List<String> {
     val preferred = if (agent.quickCommands.isEmpty()) {
         listOf("status", "approve", "retry", "stop")
@@ -828,6 +993,16 @@ private fun quickCommandLabels(agent: AgentSnapshot): List<String> {
 
 private fun commandLabel(command: String): String {
     return command.replaceFirstChar { it.uppercase() }.replace('_', ' ')
+}
+
+private fun eventTone(status: String): String {
+    return when (status.lowercase()) {
+        "busy", "running" -> "active"
+        "waiting_input", "need_approval", "need_user_input" -> "waiting"
+        "completed" -> "done"
+        "failed", "offline" -> "risk"
+        else -> "ready"
+    }
 }
 
 private fun timelineTitle(event: TimelineEvent): String {
