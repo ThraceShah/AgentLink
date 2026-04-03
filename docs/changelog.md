@@ -12,3 +12,5 @@
 - Android 客户端改为支持可配置 hub 地址，并修正 artifact 图片 URL 的动态拼接。
 - 新增第一版 tmux bridge，支持 session 绑定、pane 输出摘要、approval 检测和基础命令映射。
 - 安装并验证 Android 命令行构建环境，补充 Gradle wrapper，并完成 `assembleDebug` 自测。
+- 调整 Android 模拟器默认 hub 地址为 `10.0.2.2:8787`，并补充模拟器 cleartext/宿主机联调说明。
+- 新增 Android Emulator hub 连接回退逻辑：在 emulator 环境下，`10.0.2.2` 失败后可回退到 `127.0.0.1`，便于配合 `adb reverse` 联调。

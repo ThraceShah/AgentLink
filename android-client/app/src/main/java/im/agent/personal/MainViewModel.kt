@@ -41,17 +41,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
 
             runCatching {
-                val config = HubConfig.fromInput(_uiState.value.hubOrigin)
+                val requestedConfig = HubConfig.fromInput(_uiState.value.hubOrigin)
+                val resolved = connectWithFallback(requestedConfig)
+                val config = resolved.first
+                val bootstrap = resolved.second
                 configStore.save(config)
 
-                repository?.close()
-                repository = HubRepository(
-                    baseHttpUrl = config.httpUrl,
-                    baseWsUrl = config.wsUrl
-                )
-
-                val bootstrap = repository!!.fetchBootstrap()
                 _uiState.value = _uiState.value.copy(
+                    hubOrigin = config.origin,
                     agents = bootstrap.agents,
                     events = bootstrap.events
                 )
@@ -98,5 +95,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         repository?.close()
         super.onCleared()
+    }
+
+    private suspend fun connectWithFallback(config: HubConfig): Pair<HubConfig, BootstrapResponse> {
+        var lastError: Throwable? = null
+
+        for (candidate in config.connectionCandidates()) {
+            try {
+                repository?.close()
+                val nextRepository = HubRepository(
+                    baseHttpUrl = candidate.httpUrl,
+                    baseWsUrl = candidate.wsUrl
+                )
+                val bootstrap = nextRepository.fetchBootstrap()
+                repository = nextRepository
+                return candidate to bootstrap
+            } catch (error: Throwable) {
+                lastError = error
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Failed to connect to hub")
     }
 }
