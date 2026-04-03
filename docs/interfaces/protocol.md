@@ -2,8 +2,8 @@
 
 MVP 协议采用：
 
-- HTTP JSON：bootstrap、健康检查、artifact 下载
-- WebSocket JSON：presence、timeline、command
+- HTTP JSON：bootstrap、健康检查、artifact 下载、命令提交
+- WebSocket JSON：presence、timeline
 
 ## 1. HTTP 接口
 
@@ -14,6 +14,23 @@ MVP 协议采用：
 ### `GET /api/bootstrap`
 
 返回当前 agent 列表与最近会话时间线。
+
+### `POST /api/commands`
+
+提交一条命令到 hub，再由 hub 路由给目标 agent。
+
+请求体示例：
+
+```json
+{
+  "agentId": "demo-agent",
+  "command": {
+    "id": "cmd_001",
+    "type": "status",
+    "text": "optional"
+  }
+}
+```
 
 ### `GET /artifacts/:agentId/:fileName`
 
@@ -53,10 +70,6 @@ agent 在线状态变化。
 ### `timeline_event`
 
 会话时间线中的一条事件。
-
-### `command`
-
-client 发给 hub，再由 hub 转发给 agent 的命令。
 
 ### `heartbeat`
 
@@ -99,3 +112,4 @@ MVP 事件类型：
 - 所有 URL 在文档中都相对于 hub 地址表达
 - 图片消息通过 artifact URL 加载
 - 时间戳统一使用 ISO 8601 UTC 字符串
+- Android 当前优先通过 `POST /api/commands` 提交命令，WebSocket 继续承担实时事件接收

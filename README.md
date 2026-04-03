@@ -90,6 +90,8 @@ Android 客户端当前提供：
 - 文本指令发送
 - 可配置 hub 地址
 - 图片 artifact 预览
+- 调试命令探针，可通过 `adb am start` 自动触发一次命令发送
+- Android 端命令发送的 HTTP 回退通道，提升私网联调稳定性
 
 Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明见：
 

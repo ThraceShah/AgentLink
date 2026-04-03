@@ -48,6 +48,41 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       return;
     }
 
+    if (req.method === "POST" && url.pathname === "/api/commands") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.from(chunk));
+      }
+
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          agentId: string;
+          command: {
+            id: string;
+            type: string;
+            text?: string;
+            args?: Record<string, unknown>;
+          };
+        };
+        const result = routeCommand(payload);
+        if (!result.ok) {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: result.error }));
+          return;
+        }
+
+        res.writeHead(202, { "content-type": "application/json" });
+        res.end(JSON.stringify({ status: "accepted" }));
+        return;
+      } catch (error) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          error: error instanceof Error ? error.message : "invalid_command_request"
+        }));
+        return;
+      }
+    }
+
     if (req.method === "GET" && url.pathname.startsWith("/artifacts/")) {
       const filePath = path.join(dataDir, url.pathname.replace(/^\/+/, ""));
       try {
@@ -138,6 +173,42 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
     });
   }
 
+  function routeCommand(message: {
+    agentId: string;
+    command: {
+      id: string;
+      type: string;
+      text?: string;
+      args?: Record<string, unknown>;
+    };
+  }): { ok: true } | { ok: false; error: string } {
+    const agentSocket = agentSockets.get(message.agentId);
+    if (!agentSocket) {
+      return {
+        ok: false,
+        error: `agent ${message.agentId} is offline`
+      };
+    }
+
+    const userEvent = store.appendEvent({
+      id: createId("evt"),
+      agentId: message.agentId,
+      eventType: "user_command",
+      timestamp: nowIso(),
+      title: `Command: ${message.command.type}`,
+      body: message.command.text,
+      metadata: message.command.args
+    });
+    broadcastTimelineEvent(userEvent);
+
+    send(agentSocket, {
+      type: "command",
+      agentId: message.agentId,
+      command: message.command
+    });
+    return { ok: true };
+  }
+
   websocketServer.on("connection", (socket) => {
     contexts.set(socket, {});
 
@@ -223,26 +294,13 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       }
 
       if (message.type === "command") {
-        const userEvent = store.appendEvent({
-          id: createId("evt"),
-          agentId: message.agentId,
-          eventType: "user_command",
-          timestamp: nowIso(),
-          title: `Command: ${message.command.type}`,
-          body: message.command.text,
-          metadata: message.command.args
-        });
-        broadcastTimelineEvent(userEvent);
-
-        const agentSocket = agentSockets.get(message.agentId);
-        if (!agentSocket) {
+        const result = routeCommand(message);
+        if (!result.ok) {
           send(socket, {
             type: "error",
-            message: `agent ${message.agentId} is offline`
+            message: result.error
           });
-          return;
         }
-        send(agentSocket, message);
       }
     });
 

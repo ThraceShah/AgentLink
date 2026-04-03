@@ -94,6 +94,8 @@ adb reverse tcp:8787 tcp:8787
 - 连接尚未完成时，命令会先排队，不再静默丢弃
 - 连接打开后，排队命令会自动刷新发送
 - 关键路径会输出到 `logcat`
+- 支持通过 `adb am start` 注入一次性调试命令探针，绕过 headless 模拟点击不稳定的问题
+- Android 命令发送改为走 `POST /api/commands`，避免 WebSocket 命令投递在 emulator 联调中不稳定
 
 推荐联调步骤：
 
@@ -115,7 +117,35 @@ adb logcat -d --pid="$pid"
 
 - App 列表页已加载 agent，说明 bootstrap HTTP 已打通
 - 顶部显示 `Socket: live`，说明 WebSocket 已建立
-- 若命令在连接未完成前发出，应看到排队和后续刷新发送行为
+- 命令发送成功后，hub 时间线中应新增 `user_command`
+- 对于 `status` 或 `send_text`，应继续观察到 agent 回执事件
+
+若当前环境不适合稳定执行 `adb shell input tap`，可以直接使用调试命令探针：
+
+```bash
+adb reverse tcp:8787 tcp:8787
+adb shell am force-stop im.agent.personal
+adb shell am start \
+  -n im.agent.personal/.MainActivity \
+  --ez debug_probe_enabled true \
+  --es debug_probe_agent_id demo-agent \
+  --es debug_probe_command status \
+  --el debug_probe_delay_ms 1500
+```
+
+发送文本指令时可改为：
+
+```bash
+adb shell am start \
+  -n im.agent.personal/.MainActivity \
+  --ez debug_probe_enabled true \
+  --es debug_probe_agent_id demo-agent \
+  --es debug_probe_command send_text \
+  --es debug_probe_text "hello from adb probe" \
+  --el debug_probe_delay_ms 1500
+```
+
+该探针仅在 debug 构建中启用，默认不会影响正常用户路径。
 
 ## 当前已知限制
 
@@ -124,6 +154,7 @@ adb logcat -d --pid="$pid"
 - agent 列表与会话页可打开
 - hub bootstrap 与 WebSocket 建链可继续联调
 - 但通过 headless emulator 做完整触控自动化验收，仍存在输入注入不稳定的问题
+- 因此当前更推荐使用调试命令探针完成 Android 命令链路验收
 
 这属于当前验证环境限制，不等同于产品协议链路阻塞。若要完成更可信的触控验收，优先建议：
 

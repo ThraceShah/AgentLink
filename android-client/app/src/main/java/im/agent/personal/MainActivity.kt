@@ -1,6 +1,9 @@
 package im.agent.personal
 
+import android.content.pm.ApplicationInfo
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -29,8 +32,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val debugProbeTag = "AgentImDebugProbe"
+private const val debugProbeEnabledKey = "debug_probe_enabled"
+private const val debugProbeAgentIdKey = "debug_probe_agent_id"
+private const val debugProbeCommandKey = "debug_probe_command"
+private const val debugProbeTextKey = "debug_probe_text"
+private const val debugProbeDelayMsKey = "debug_probe_delay_ms"
+
+data class DebugCommandProbe(
+    val agentId: String?,
+    val command: String,
+    val text: String?,
+    val delayMs: Long
+)
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<MainViewModel>()
@@ -52,6 +72,43 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+
+        val debugProbe = readDebugCommandProbe(intent, isDebuggableBuild())
+        if (debugProbe != null) {
+            lifecycleScope.launch {
+                runDebugProbe(debugProbe)
+            }
+        }
+    }
+
+    private suspend fun runDebugProbe(debugProbe: DebugCommandProbe) {
+        repeat(30) {
+            val state = viewModel.uiState.value
+            val targetAgent = if (debugProbe.agentId.isNullOrBlank()) {
+                state.agents.firstOrNull()
+            } else {
+                state.agents.firstOrNull { it.agentId == debugProbe.agentId }
+            }
+
+            if (state.socketState == SocketConnectionState.CONNECTED && targetAgent != null) {
+                viewModel.selectAgent(targetAgent.agentId)
+                delay(debugProbe.delayMs)
+                Log.i(
+                    debugProbeTag,
+                    "Triggering debug probe command ${debugProbe.command} for ${targetAgent.agentId}"
+                )
+                if (debugProbe.command == "send_text") {
+                    viewModel.sendInstruction(targetAgent.agentId, debugProbe.text.orEmpty())
+                } else {
+                    viewModel.sendQuickCommand(targetAgent.agentId, debugProbe.command)
+                }
+                return
+            }
+
+            delay(500)
+        }
+
+        Log.w(debugProbeTag, "Debug probe timed out before agent became ready")
     }
 }
 
@@ -175,4 +232,33 @@ private fun InstructionComposer(
             Text("Send")
         }
     }
+}
+
+private fun readDebugCommandProbe(intent: Intent?, isDebuggableBuild: Boolean): DebugCommandProbe? {
+    if (!isDebuggableBuild || intent == null || !intent.getBooleanExtra(debugProbeEnabledKey, false)) {
+        return null
+    }
+
+    val command = intent.getStringExtra(debugProbeCommandKey)?.trim().orEmpty()
+    if (command.isEmpty()) {
+        Log.w(debugProbeTag, "Ignoring debug probe because command is missing")
+        return null
+    }
+
+    val probe = DebugCommandProbe(
+        agentId = intent.getStringExtra(debugProbeAgentIdKey)?.trim()?.ifEmpty { null },
+        command = command,
+        text = intent.getStringExtra(debugProbeTextKey),
+        delayMs = intent.getLongExtra(debugProbeDelayMsKey, 1200L).coerceAtLeast(0L)
+    )
+
+    Log.i(
+        debugProbeTag,
+        "Loaded debug probe command ${probe.command} for agent ${probe.agentId ?: "<first>"}"
+    )
+    return probe
+}
+
+private fun MainActivity.isDebuggableBuild(): Boolean {
+    return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 }

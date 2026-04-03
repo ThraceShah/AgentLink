@@ -2,7 +2,9 @@ package im.agent.personal
 
 import android.util.Log
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -102,14 +104,7 @@ class HubRepository(
                 text = text
             )
         )
-        if (connectionState == SocketConnectionState.CONNECTED && socket != null) {
-            Log.i(logTag, "Sending command $type to $agentId")
-            socket?.send(json.encodeToString(payload))
-            return
-        }
-
-        pendingCommands += payload
-        Log.w(logTag, "Queued command $type for $agentId because socket is not connected")
+        postCommand(payload)
     }
 
     fun resolveArtifactUrl(path: String): String {
@@ -130,12 +125,41 @@ class HubRepository(
             return
         }
 
-        val activeSocket = socket ?: return
         val queued = pendingCommands.toList()
         pendingCommands.clear()
         for (payload in queued) {
             Log.i(logTag, "Flushing queued command ${payload.command.type} to ${payload.agentId}")
-            activeSocket.send(json.encodeToString(payload))
+            postCommand(payload)
         }
+    }
+
+    private fun postCommand(payload: CommandEnvelope) {
+        val body = json.encodeToString(payload).toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("$baseHttpUrl/api/commands")
+            .post(body)
+            .build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                Log.e(logTag, "HTTP command failed: ${payload.command.type}", e)
+                pendingCommands += payload
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: Response) {
+                response.use {
+                    if (it.isSuccessful) {
+                        Log.i(logTag, "HTTP command accepted: ${payload.command.type} -> ${payload.agentId}")
+                        return
+                    }
+
+                    Log.w(
+                        logTag,
+                        "HTTP command rejected: ${payload.command.type} -> ${payload.agentId}; code=${it.code}"
+                    )
+                    pendingCommands += payload
+                }
+            }
+        })
     }
 }

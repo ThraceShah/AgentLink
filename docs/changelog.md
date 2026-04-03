@@ -16,3 +16,5 @@
 - 新增 Android Emulator hub 连接回退逻辑：在 emulator 环境下，`10.0.2.2` 失败后可回退到 `127.0.0.1`，便于配合 `adb reverse` 联调。
 - 新增桌面会话支撑的 emulator 启动脚本，可在 SSH 会话中复用本机 GNOME 图形环境并启用 KVM 加速。
 - 新增 Android WebSocket 连接状态展示、命令排队和 `logcat` 调试日志，修复模拟器联调中命令投递静默失败的残留问题。
+- 新增 Android 调试命令探针，可通过 `adb am start` 自动触发一次命令发送，用于绕过 headless emulator 模拟点击不稳定的问题。
+- 新增 `POST /api/commands` 与 Android HTTP 命令回退通道，解决 emulator 联调中 Android WebSocket 发送命令不稳定的问题。
