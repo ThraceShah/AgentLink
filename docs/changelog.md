@@ -18,3 +18,4 @@
 - 新增 Android WebSocket 连接状态展示、命令排队和 `logcat` 调试日志，修复模拟器联调中命令投递静默失败的残留问题。
 - 新增 Android 调试命令探针，可通过 `adb am start` 自动触发一次命令发送，用于绕过 headless emulator 模拟点击不稳定的问题。
 - 新增 `POST /api/commands` 与 Android HTTP 命令回退通道，解决 emulator 联调中 Android WebSocket 发送命令不稳定的问题。
+- 新增 Android debug hub 地址覆盖能力，支持真机通过 `adb reverse` 使用 `127.0.0.1` 连接本机 hub。

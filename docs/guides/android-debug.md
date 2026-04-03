@@ -147,6 +147,19 @@ adb shell am start \
 
 该探针仅在 debug 构建中启用，默认不会影响正常用户路径。
 
+若是真机通过 USB + `adb reverse` 联调，应同时覆盖 hub 地址为 `127.0.0.1`：
+
+```bash
+adb reverse tcp:8787 tcp:8787
+adb shell am start \
+  -n im.agent.personal/.MainActivity \
+  --es debug_hub_origin http://127.0.0.1:8787 \
+  --ez debug_probe_enabled true \
+  --es debug_probe_agent_id demo-agent \
+  --es debug_probe_command status \
+  --el debug_probe_delay_ms 1500
+```
+
 ## 当前已知限制
 
 在当前无界面 emulator 环境下，`adb shell input tap` 对 Jetpack Compose 按钮的触发并不稳定。当前已经验证：

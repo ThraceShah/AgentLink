@@ -44,6 +44,7 @@ private const val debugProbeAgentIdKey = "debug_probe_agent_id"
 private const val debugProbeCommandKey = "debug_probe_command"
 private const val debugProbeTextKey = "debug_probe_text"
 private const val debugProbeDelayMsKey = "debug_probe_delay_ms"
+private const val debugHubOriginKey = "debug_hub_origin"
 
 data class DebugCommandProbe(
     val agentId: String?,
@@ -57,6 +58,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val isDebuggableBuild = isDebuggableBuild()
+        readDebugHubOrigin(intent, isDebuggableBuild)?.let(viewModel::updateHubOrigin)
+
         setContent {
             MaterialTheme {
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -73,7 +77,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val debugProbe = readDebugCommandProbe(intent, isDebuggableBuild())
+        val debugProbe = readDebugCommandProbe(intent, isDebuggableBuild)
         if (debugProbe != null) {
             lifecycleScope.launch {
                 runDebugProbe(debugProbe)
@@ -261,4 +265,18 @@ private fun readDebugCommandProbe(intent: Intent?, isDebuggableBuild: Boolean): 
 
 private fun MainActivity.isDebuggableBuild(): Boolean {
     return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+}
+
+private fun readDebugHubOrigin(intent: Intent?, isDebuggableBuild: Boolean): String? {
+    if (!isDebuggableBuild || intent == null) {
+        return null
+    }
+
+    val raw = intent.getStringExtra(debugHubOriginKey)?.trim().orEmpty()
+    if (raw.isEmpty()) {
+        return null
+    }
+
+    Log.i(debugProbeTag, "Applying debug hub origin override: $raw")
+    return raw
 }
