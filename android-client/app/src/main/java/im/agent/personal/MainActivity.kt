@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -124,6 +125,7 @@ class MainActivity : ComponentActivity() {
                     onConnect = viewModel::connect,
                     onSelectAgent = viewModel::selectAgent,
                     onBackToInbox = { viewModel.selectAgent(null) },
+                    onCreateSession = viewModel::createSession,
                     onQuickCommand = viewModel::sendQuickCommand,
                     onSendInstruction = viewModel::sendInstruction
                 )
@@ -177,6 +179,7 @@ private fun AppContent(
     onConnect: () -> Unit,
     onSelectAgent: (String) -> Unit,
     onBackToInbox: () -> Unit,
+    onCreateSession: (String, String) -> Unit,
     onQuickCommand: (String, String) -> Unit,
     onSendInstruction: (String, String) -> Unit
 ) {
@@ -195,7 +198,8 @@ private fun AppContent(
                 state = state,
                 onHubOriginChange = onHubOriginChange,
                 onConnect = onConnect,
-                onSelectAgent = onSelectAgent
+                onSelectAgent = onSelectAgent,
+                onCreateSession = onCreateSession
             )
         } else {
             ConversationScreen(
@@ -217,9 +221,11 @@ private fun InboxScreen(
     state: MainUiState,
     onHubOriginChange: (String) -> Unit,
     onConnect: () -> Unit,
-    onSelectAgent: (String) -> Unit
+    onSelectAgent: (String) -> Unit,
+    onCreateSession: (String, String) -> Unit
 ) {
     var showConnectionConfig by rememberSaveable { mutableStateOf(false) }
+    var showCreateSessionDialog by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -242,6 +248,9 @@ private fun InboxScreen(
                     }
                 },
                 actions = {
+                    TextButton(onClick = { showCreateSessionDialog = true }) {
+                        Text("New")
+                    }
                     TextButton(onClick = { showConnectionConfig = !showConnectionConfig }) {
                         Text(if (showConnectionConfig) "Hide Hub" else "Hub")
                     }
@@ -249,6 +258,18 @@ private fun InboxScreen(
             )
         }
     ) { paddingValues ->
+        if (showCreateSessionDialog) {
+            CreateSessionDialog(
+                profiles = state.profiles,
+                isCreating = state.isCreatingSession,
+                onDismiss = { showCreateSessionDialog = false },
+                onConfirm = { profileId, sessionName ->
+                    onCreateSession(profileId, sessionName)
+                    showCreateSessionDialog = false
+                }
+            )
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -261,7 +282,8 @@ private fun InboxScreen(
                     agents = state.agents,
                     agentCount = state.agents.size,
                     socketState = state.socketState,
-                    connectionError = state.connectionError
+                    connectionError = state.connectionError,
+                    onCreateSession = { showCreateSessionDialog = true }
                 )
             }
 
@@ -365,6 +387,7 @@ private fun ConversationScreen(
             items(visibleEvents, key = { it.id }) { event ->
                 TimelineMessageCard(
                     event = event,
+                    agent = agent,
                     resolveArtifactUrl = resolveArtifactUrl
                 )
             }
@@ -383,7 +406,8 @@ private fun InboxHeroCard(
     agents: List<AgentSnapshot>,
     agentCount: Int,
     socketState: SocketConnectionState,
-    connectionError: String?
+    connectionError: String?,
+    onCreateSession: () -> Unit
 ) {
     val runningCount = agents.count { it.status.equals("busy", ignoreCase = true) || it.status.equals("running", ignoreCase = true) }
     val waitingCount = agents.count {
@@ -430,6 +454,9 @@ private fun InboxHeroCard(
                 SummaryPill(label = "Running", value = runningCount.toString(), accent = Color(0xFFFFC76C))
                 SummaryPill(label = "Waiting", value = waitingCount.toString(), accent = Color(0xFFFF9A76))
                 SummaryPill(label = "Risk", value = riskCount.toString(), accent = Color(0xFFFF8D92))
+            }
+            Button(onClick = onCreateSession) {
+                Text("Create tmux session")
             }
             connectionError?.let {
                 Text(
@@ -495,6 +522,77 @@ private fun ConnectionConfigCard(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CreateSessionDialog(
+    profiles: List<AgentProfile>,
+    isCreating: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String) -> Unit
+) {
+    var sessionName by rememberSaveable { mutableStateOf("") }
+    var selectedProfileId by rememberSaveable(profiles) {
+        mutableStateOf(profiles.firstOrNull()?.id.orEmpty())
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New tmux session") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Choose an agent profile and a tmux session name.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    profiles.forEach { profile ->
+                        AssistChip(
+                            onClick = { selectedProfileId = profile.id },
+                            label = { Text(profile.label) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = if (selectedProfileId == profile.id) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                },
+                                labelColor = if (selectedProfileId == profile.id) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = sessionName,
+                    onValueChange = { sessionName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Session name") },
+                    placeholder = { Text("for example: codex-fix-login") },
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selectedProfileId, sessionName.trim()) },
+                enabled = !isCreating && selectedProfileId.isNotBlank() && sessionName.isNotBlank()
+            ) {
+                Text(if (isCreating) "Creating" else "Create")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isCreating) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
 @Composable
 private fun EmptyInboxCard() {
     Card(
@@ -558,7 +656,7 @@ private fun AgentConversationCard(
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            agent.sessionHint?.takeIf { it.isNotBlank() }?.let {
+                            prettyAgentLabel(agent).takeIf { it.isNotBlank() }?.let {
                                 Text(
                                     it,
                                     style = MaterialTheme.typography.bodySmall,
@@ -577,7 +675,7 @@ private fun AgentConversationCard(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         StatusBadge(agent.status)
                         Text(
-                            agent.kind,
+                            tmuxSessionLine(agent),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -643,7 +741,7 @@ private fun AgentHeaderCard(agent: AgentSnapshot, socketState: SocketConnectionS
                     Column {
                         Text(agent.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Text(
-                            agent.sessionHint ?: "No session hint",
+                            tmuxSessionLine(agent),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -666,9 +764,11 @@ private fun AgentHeaderCard(agent: AgentSnapshot, socketState: SocketConnectionS
 @Composable
 private fun TimelineMessageCard(
     event: TimelineEvent,
+    agent: AgentSnapshot,
     resolveArtifactUrl: (String) -> String
 ) {
     val bubbleColors = messageBubbleColors(event)
+    val speaker = timelineSpeaker(event, agent)
     val alignment = when (event.eventType) {
         "user_command" -> Arrangement.End
         else -> Arrangement.Start
@@ -699,12 +799,16 @@ private fun TimelineMessageCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        timelineSpeaker(event),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = bubbleColors.second.copy(alpha = 0.76f),
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    if (speaker != null) {
+                        Text(
+                            speaker,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = bubbleColors.second.copy(alpha = 0.76f),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else {
+                        Spacer(modifier = Modifier)
+                    }
                     Text(
                         formatTimestamp(event.timestamp),
                         style = MaterialTheme.typography.bodySmall,
@@ -1007,10 +1111,10 @@ private fun timelineTitle(event: TimelineEvent): String {
     }
 }
 
-private fun timelineSpeaker(event: TimelineEvent): String {
+private fun timelineSpeaker(event: TimelineEvent, agent: AgentSnapshot): String? {
     return when (event.eventType) {
-        "user_command" -> "You"
-        else -> "Agent"
+        "user_command" -> null
+        else -> prettyAgentLabel(agent)
     }
 }
 
@@ -1043,6 +1147,24 @@ private fun messageBubbleColors(event: TimelineEvent): Pair<Color, Color> {
         "task_completed" -> Pair(Color(0xFF173A33), Color(0xFFB8F4E9))
         "need_approval", "need_user_input" -> Pair(Color(0xFF52401E), Color(0xFFFFE8B8))
         else -> Pair(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun prettyAgentLabel(agent: AgentSnapshot): String {
+    return when (agent.kind.lowercase()) {
+        "codex", "codex-bridge" -> "codex"
+        "qwen", "qwen-cli", "qwen-coder" -> "qwen"
+        "tmux", "tmux-agent" -> "tmux"
+        else -> agent.kind.lowercase()
+    }
+}
+
+private fun tmuxSessionLine(agent: AgentSnapshot): String {
+    val sessionName = agent.sessionHint?.takeIf { it.isNotBlank() }
+    return if (sessionName != null && sessionName != agent.displayName) {
+        "${prettyAgentLabel(agent)} · $sessionName"
+    } else {
+        prettyAgentLabel(agent)
     }
 }
 

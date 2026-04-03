@@ -27,9 +27,9 @@ const approveText = process.env.TMUX_APPROVE_TEXT ?? "y";
 
 const runtime = new AgentRuntime({
   hubUrl,
-  agentId: process.env.AGENT_ID ?? defaultAgentId(profile),
-  displayName: defaultDisplayName(profile),
-  kind: defaultKind(profile),
+  agentId: process.env.AGENT_ID ?? defaultAgentId(profile, sessionName),
+  displayName: process.env.AGENT_DISPLAY_NAME ?? defaultDisplayName(sessionName),
+  kind: process.env.AGENT_KIND ?? defaultKind(profile),
   sessionHint: sessionName,
   capabilities: ["status", "stop", "retry", "approve", "send_text"],
   quickCommands: ["status", "approve", "retry", "stop"]
@@ -377,16 +377,19 @@ process.on("SIGTERM", () => {
   shutdown().finally(() => process.exit(0));
 });
 
-function defaultDisplayName(currentProfile: BridgeProfile): string {
-  return currentProfile === "codex" ? "Codex Bridge" : "tmux Agent";
+function defaultDisplayName(currentSessionName: string): string {
+  return currentSessionName;
 }
 
 function defaultKind(currentProfile: BridgeProfile): string {
-  return currentProfile === "codex" ? "codex-bridge" : "tmux-agent";
+  return currentProfile === "codex" ? "codex" : "tmux";
 }
 
-function defaultAgentId(currentProfile: BridgeProfile): string {
-  return currentProfile === "codex" ? "codex-bridge" : "tmux-agent";
+function defaultAgentId(currentProfile: BridgeProfile, currentSessionName: string): string {
+  if (currentProfile === "codex") {
+    return currentSessionName;
+  }
+  return `tmux-${currentSessionName}`;
 }
 
 function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: CodexMode): string | undefined {

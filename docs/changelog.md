@@ -28,3 +28,6 @@
 - 将示例 agent 从回声逻辑升级为 OpenAI bridge；未配置 `OPENAI_API_KEY` 时会明确提示缺失条件。
 - 增强 `tmux-agent` 为第一版 Codex bridge，支持 `codex` profile、增量输出提取、最近有效回复缓存和基础提示识别。
 - 将 `codex` profile 默认切到稳定的 `codex exec` 模式，并完成真实端到端验证：`send_text` 已能返回真实 Codex 回复。
+- 调整 tmux bridge 联系人命名策略：联系人主名称改为 tmux 会话名，会话内对端消息显示真实 agent 名称而非泛化的 `Agent`。
+- 新增离线历史清理能力：Hub 支持清理 `offline` 会话及其时间线，Android 重连时会主动触发一次清理，避免历史联系人残留。
+- 新增首页“新增会话”入口：Android 可直接选择 agent profile 与会话名称，由 Hub 创建新的 tmux-backed 会话并自动注册到联系人列表。

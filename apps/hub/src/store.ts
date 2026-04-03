@@ -91,4 +91,22 @@ export class HubStore {
   getAgent(agentId: string): AgentSnapshot | undefined {
     return this.agents.get(agentId);
   }
+
+  clearAgent(agentId: string): void {
+    this.agents.delete(agentId);
+    this.events.delete(agentId);
+  }
+
+  pruneOfflineAgents(): string[] {
+    const removedIds: string[] = [];
+    for (const [agentId, snapshot] of this.agents.entries()) {
+      if (snapshot.status !== "offline") {
+        continue;
+      }
+
+      removedIds.push(agentId);
+      this.clearAgent(agentId);
+    }
+    return removedIds;
+  }
 }

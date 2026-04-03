@@ -101,15 +101,24 @@ Android 客户端当前提供：
 
 - agent 列表
 - IM 风格的会话列表与单列会话页
+- 联系人主标题直接使用 tmux 会话名
 - 会话时间线
 - Inbox 概览摘要与更清晰的状态层级
 - 快捷命令
 - 文本指令发送
+- 首页新增会话入口，可直接创建新的 tmux-backed Codex 会话
 - 可配置 hub 地址
 - 图片 artifact 预览
 - 调试命令探针，可通过 `adb am start` 自动触发一次命令发送
 - Android 端命令发送的 HTTP 回退通道，提升私网联调稳定性
 - 可选的 Tailscale Serve 接入模式，用于绕过部分设备对 `100.x.x.x:port` 的直连异常
+
+当前首页的 `New` / `Create tmux session` 入口会向 hub 请求：
+
+1. 查询本机可用 agent profile
+2. 创建一个新的 tmux session
+3. 拉起对应 bridge
+4. 让新会话自动出现在联系人列表中
 
 Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明见：
 

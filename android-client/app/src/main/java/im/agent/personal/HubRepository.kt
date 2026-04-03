@@ -34,14 +34,25 @@ class HubRepository(
     private val pendingCommands = mutableListOf<CommandEnvelope>()
 
     suspend fun fetchBootstrap(): BootstrapResponse {
-        val response = client.newCall(
-            Request.Builder().url("$baseHttpUrl/api/bootstrap").build()
-        ).execute()
-        check(response.isSuccessful) {
-            "Bootstrap request failed with HTTP ${response.code}"
-        }
-        val body = response.body?.string().orEmpty()
-        return json.decodeFromString(body)
+        return get("/api/bootstrap")
+    }
+
+    suspend fun fetchProfiles(): AgentProfilesResponse {
+        return get("/api/agent-profiles")
+    }
+
+    suspend fun pruneOfflineSessions(): PruneOfflineResponse {
+        return postEmpty("/api/admin/prune-offline")
+    }
+
+    suspend fun createSession(sessionName: String, profileId: String): CreateSessionResponse {
+        return post(
+            path = "/api/sessions",
+            payload = CreateSessionRequest(
+                sessionName = sessionName,
+                profileId = profileId
+            )
+        )
     }
 
     fun connect(
@@ -161,5 +172,43 @@ class HubRepository(
                 }
             }
         })
+    }
+
+    private suspend inline fun <reified T> get(path: String): T {
+        val response = client.newCall(
+            Request.Builder().url("$baseHttpUrl$path").build()
+        ).execute()
+        check(response.isSuccessful) {
+            "Request to $path failed with HTTP ${response.code}"
+        }
+        val body = response.body?.string().orEmpty()
+        return json.decodeFromString(body)
+    }
+
+    private suspend inline fun <reified T, reified P> post(path: String, payload: P): T {
+        val body = json.encodeToString(payload).toRequestBody("application/json".toMediaType())
+        val response = client.newCall(
+            Request.Builder()
+                .url("$baseHttpUrl$path")
+                .post(body)
+                .build()
+        ).execute()
+        check(response.isSuccessful) {
+            "Request to $path failed with HTTP ${response.code}"
+        }
+        return json.decodeFromString(response.body?.string().orEmpty())
+    }
+
+    private suspend inline fun <reified T> postEmpty(path: String): T {
+        val response = client.newCall(
+            Request.Builder()
+                .url("$baseHttpUrl$path")
+                .post("{}".toRequestBody("application/json".toMediaType()))
+                .build()
+        ).execute()
+        check(response.isSuccessful) {
+            "Request to $path failed with HTTP ${response.code}"
+        }
+        return json.decodeFromString(response.body?.string().orEmpty())
     }
 }

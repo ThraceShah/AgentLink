@@ -11,6 +11,7 @@ import {
   type AgentSnapshot,
   type TimelineEvent
 } from "../../../packages/protocol/src/index.js";
+import { SessionManager } from "./session-manager.js";
 import { HubStore } from "./store.js";
 
 type CreateHubServerOptions = {
@@ -29,9 +30,11 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
   const port = options.port ?? Number(process.env.HUB_PORT ?? 8787);
   const dataDir = options.dataDir ?? process.env.HUB_DATA_DIR ?? "data";
   const store = new HubStore();
+  const sessionManager = new SessionManager();
   const clientSockets = new Set<WebSocket>();
   const agentSockets = new Map<string, WebSocket>();
   const contexts = new WeakMap<WebSocket, ConnectionContext>();
+  let activePort = port;
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${host}:${port}`}`);
@@ -46,6 +49,52 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(store.getBootstrap()));
       return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/agent-profiles") {
+      const profiles = await sessionManager.listProfiles();
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ profiles }));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/admin/prune-offline") {
+      const removedAgentIds = store.pruneOfflineAgents();
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ removedAgentIds }));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/sessions") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.from(chunk));
+      }
+
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          sessionName?: string;
+          profileId?: string;
+        };
+
+        const result = await sessionManager.createSession({
+          sessionName: payload.sessionName ?? "",
+          profileId: payload.profileId ?? "",
+          hubUrl: `ws://127.0.0.1:${activePort}/ws`
+        });
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          sessionName: result.sessionName,
+          profile: result.profile
+        }));
+        return;
+      } catch (error) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          error: error instanceof Error ? error.message : "failed_to_create_session"
+        }));
+        return;
+      }
     }
 
     if (req.method === "POST" && url.pathname === "/api/commands") {
@@ -330,6 +379,7 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       await new Promise<void>((resolve) => server.listen(port, host, () => resolve()));
       const address = server.address();
       const actualPort = typeof address === "object" && address ? address.port : port;
+      activePort = actualPort;
       return { port: actualPort, host };
     },
     async stop(): Promise<void> {

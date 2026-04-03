@@ -16,8 +16,10 @@ data class MainUiState(
     val hubOrigin: String = "",
     val agents: List<AgentSnapshot> = emptyList(),
     val events: List<TimelineEvent> = emptyList(),
+    val profiles: List<AgentProfile> = emptyList(),
     val selectedAgentId: String? = null,
     val isConnecting: Boolean = false,
+    val isCreatingSession: Boolean = false,
     val connectionError: String? = null,
     val socketState: SocketConnectionState = SocketConnectionState.DISCONNECTED
 )
@@ -50,12 +52,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val resolved = connectWithFallback(requestedConfig)
                 val config = resolved.first
                 val bootstrap = resolved.second
+                val profiles = resolved.third
                 configStore.save(config)
 
                 _uiState.value = _uiState.value.copy(
                     hubOrigin = config.origin,
                     agents = bootstrap.agents,
                     events = bootstrap.events,
+                    profiles = profiles,
                     socketState = SocketConnectionState.CONNECTING
                 )
                 repository!!.connect(
@@ -68,10 +72,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     },
                     onAgentDelta = { agent ->
-                        val updated = _uiState.value.agents
-                            .filterNot { it.agentId == agent.agentId } + agent
+                        val updated = if (agent.status == "offline") {
+                            _uiState.value.agents.filterNot { it.agentId == agent.agentId }
+                        } else {
+                            _uiState.value.agents.filterNot { it.agentId == agent.agentId } + agent
+                        }
                         _uiState.value = _uiState.value.copy(
-                            agents = updated.sortedByDescending { it.lastSeenAt }
+                            agents = updated.sortedByDescending { it.lastSeenAt },
+                            events = if (agent.status == "offline") {
+                                _uiState.value.events.filterNot { it.agentId == agent.agentId }
+                            } else {
+                                _uiState.value.events
+                            }
                         )
                     },
                     onTimelineEvent = { event ->
@@ -106,6 +118,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository?.sendCommand(agentId, "send_text", text)
     }
 
+    fun createSession(profileId: String, sessionName: String) {
+        if (profileId.isBlank() || sessionName.isBlank()) {
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.value = _uiState.value.copy(isCreatingSession = true, connectionError = null)
+            runCatching {
+                repository?.createSession(sessionName = sessionName, profileId = profileId)
+                repeat(12) {
+                    delay(500)
+                    val bootstrap = repository?.fetchBootstrap() ?: return@repeat
+                    val profiles = repository?.fetchProfiles()?.profiles ?: emptyList()
+                    mergeBootstrap(bootstrap)
+                    _uiState.value = _uiState.value.copy(profiles = profiles)
+                    val matched = bootstrap.agents.firstOrNull { it.displayName == sessionName || it.agentId == sessionName }
+                    if (matched != null) {
+                        _uiState.value = _uiState.value.copy(selectedAgentId = matched.agentId)
+                        return@runCatching
+                    }
+                }
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    connectionError = error.message ?: "Failed to create session"
+                )
+            }
+            _uiState.value = _uiState.value.copy(isCreatingSession = false)
+        }
+    }
+
     fun resolveArtifactUrl(relativeUrl: String): String {
         return repository?.resolveArtifactUrl(relativeUrl) ?: relativeUrl
     }
@@ -116,7 +158,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
     }
 
-    private suspend fun connectWithFallback(config: HubConfig): Pair<HubConfig, BootstrapResponse> {
+    private suspend fun connectWithFallback(config: HubConfig): Triple<HubConfig, BootstrapResponse, List<AgentProfile>> {
         var lastError: Throwable? = null
 
         for (candidate in config.connectionCandidates()) {
@@ -127,8 +169,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     baseWsUrl = candidate.wsUrl
                 )
                 repository = nextRepository
+                nextRepository.pruneOfflineSessions()
                 val bootstrap = nextRepository.fetchBootstrap()
-                return candidate to bootstrap
+                val profiles = nextRepository.fetchProfiles().profiles
+                return Triple(candidate, bootstrap, profiles)
             } catch (error: Throwable) {
                 lastError = error
             }

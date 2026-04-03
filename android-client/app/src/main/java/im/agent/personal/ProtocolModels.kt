@@ -83,3 +83,31 @@ data class TimelineEnvelope(
     @SerialName("type") val envelopeType: String,
     val event: TimelineEvent
 )
+
+@Serializable
+data class AgentProfilesResponse(
+    val profiles: List<AgentProfile>
+)
+
+@Serializable
+data class AgentProfile(
+    val id: String,
+    val label: String
+)
+
+@Serializable
+data class CreateSessionRequest(
+    val sessionName: String,
+    val profileId: String
+)
+
+@Serializable
+data class CreateSessionResponse(
+    val sessionName: String,
+    val profile: AgentProfile
+)
+
+@Serializable
+data class PruneOfflineResponse(
+    val removedAgentIds: List<String>
+)

@@ -62,7 +62,8 @@ AGENT_EVENT {"eventType":"need_approval","title":"Review patch","body":"Please a
 
 该模式会：
 
-- 默认把 agent 标识为 `codex-bridge`
+- 默认把联系人显示名设置为 tmux session 名
+- 默认把 agent 类型标识为 `codex`
 - 默认使用 `TMUX_CODEX_MODE=exec`
 - 在 `exec` 模式下，tmux session 作为 shell 容器，`send_text` 会触发 `codex exec`
 - 通过 `--output-last-message` 稳定提取最终回复，不依赖向 TUI 注入按键后的屏幕解析
@@ -97,6 +98,30 @@ TMUX_BRIDGE_PROFILE=codex TMUX_SESSION=my-codex npm run dev:tmux-agent
 ```bash
 TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=interactive TMUX_COMMAND='codex --no-alt-screen' npm run dev:tmux-agent
 ```
+
+## 通过 Hub 创建新会话
+
+当前 hub 已提供轻量会话管理接口：
+
+- `GET /api/agent-profiles`
+- `POST /api/sessions`
+- `POST /api/admin/prune-offline`
+
+Android 首页的“新增会话”按钮实际会调用这些接口。
+
+典型流程：
+
+1. Hub 返回当前机器可用的 agent profile，例如 `codex`
+2. 用户输入一个会话名，例如 `codex-fix-login`
+3. Hub 创建同名 tmux session
+4. Hub 拉起对应 bridge
+5. 新会话自动注册到联系人列表中
+
+离线历史清理：
+
+- 当 bridge 断开后，Hub 会先把联系人标记为 `offline`
+- 调用 `POST /api/admin/prune-offline` 后，会移除这些离线历史会话及其时间线
+- Android 客户端在重新 bootstrap 时也会主动触发一次该清理，避免历史离线联系人残留在首页
 
 ## 关键环境变量
 
