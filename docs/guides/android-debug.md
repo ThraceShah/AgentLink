@@ -96,6 +96,7 @@ adb reverse tcp:8787 tcp:8787
 - 关键路径会输出到 `logcat`
 - 支持通过 `adb am start` 注入一次性调试命令探针，绕过 headless 模拟点击不稳定的问题
 - Android 命令发送改为走 `POST /api/commands`，避免 WebSocket 命令投递在 emulator 联调中不稳定
+- 当 WebSocket 未建立时，客户端会自动回退到 HTTP 轮询刷新
 
 推荐联调步骤：
 
@@ -119,6 +120,7 @@ adb logcat -d --pid="$pid"
 - 顶部显示 `Socket: live`，说明 WebSocket 已建立
 - 命令发送成功后，hub 时间线中应新增 `user_command`
 - 对于 `status` 或 `send_text`，应继续观察到 agent 回执事件
+- 若顶部显示 `Socket: offline, polling`，说明实时通道不可用，但客户端仍会通过 HTTP 定时刷新
 
 若当前环境不适合稳定执行 `adb shell input tap`，可以直接使用调试命令探针：
 

@@ -19,3 +19,4 @@
 - 新增 Android 调试命令探针，可通过 `adb am start` 自动触发一次命令发送，用于绕过 headless emulator 模拟点击不稳定的问题。
 - 新增 `POST /api/commands` 与 Android HTTP 命令回退通道，解决 emulator 联调中 Android WebSocket 发送命令不稳定的问题。
 - 新增 Android debug hub 地址覆盖能力，支持真机通过 `adb reverse` 使用 `127.0.0.1` 连接本机 hub。
+- 新增 Android HTTP 轮询回退，使 WebSocket 离线时仍可刷新 agent 列表与时间线。

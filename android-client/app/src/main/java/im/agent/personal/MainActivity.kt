@@ -209,8 +209,8 @@ private fun AppContent(
 @Composable
 private fun SocketStateChip(socketState: SocketConnectionState) {
     val label = when (socketState) {
-        SocketConnectionState.DISCONNECTED -> "Socket: offline"
-        SocketConnectionState.CONNECTING -> "Socket: connecting"
+        SocketConnectionState.DISCONNECTED -> "Socket: offline, polling"
+        SocketConnectionState.CONNECTING -> "Socket: connecting, polling"
         SocketConnectionState.CONNECTED -> "Socket: live"
     }
     Text(label, style = MaterialTheme.typography.bodyMedium)

@@ -4,6 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +25,7 @@ data class MainUiState(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val configStore = HubConfigStore(application)
     private var repository: HubRepository? = null
+    private var pollingJob: Job? = null
 
     private val _uiState = MutableStateFlow(MainUiState(hubOrigin = configStore.load().origin))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -57,6 +61,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 repository!!.connect(
                     onConnectionStateChange = { socketState ->
                         _uiState.value = _uiState.value.copy(socketState = socketState)
+                        if (socketState == SocketConnectionState.CONNECTED) {
+                            stopPolling()
+                        } else {
+                            startPolling()
+                        }
                     },
                     onAgentDelta = { agent ->
                         val updated = _uiState.value.agents
@@ -71,11 +80,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 )
+                startPolling()
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     connectionError = error.message ?: "Failed to connect to hub",
                     socketState = SocketConnectionState.DISCONNECTED
                 )
+                startPolling()
             }
 
             _uiState.value = _uiState.value.copy(isConnecting = false)
@@ -99,6 +110,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        stopPolling()
         repository?.close()
         super.onCleared()
     }
@@ -122,5 +134,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         throw lastError ?: IllegalStateException("Failed to connect to hub")
+    }
+
+    private fun startPolling() {
+        if (pollingJob?.isActive == true) {
+            return
+        }
+
+        pollingJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (_uiState.value.socketState == SocketConnectionState.CONNECTED) {
+                    delay(5000)
+                    continue
+                }
+
+                runCatching {
+                    repository?.fetchBootstrap()
+                }.onSuccess { bootstrap ->
+                    if (bootstrap != null) {
+                        mergeBootstrap(bootstrap)
+                    }
+                }
+
+                delay(5000)
+            }
+        }
+    }
+
+    private fun stopPolling() {
+        pollingJob?.cancel()
+        pollingJob = null
+    }
+
+    private fun mergeBootstrap(bootstrap: BootstrapResponse) {
+        val mergedAgents = bootstrap.agents.sortedByDescending { it.lastSeenAt }
+        val existingEvents = _uiState.value.events.associateBy { it.id }.toMutableMap()
+        for (event in bootstrap.events) {
+            existingEvents.putIfAbsent(event.id, event)
+        }
+
+        _uiState.value = _uiState.value.copy(
+            agents = mergedAgents,
+            events = existingEvents.values.sortedBy { it.timestamp }
+        )
     }
 }
