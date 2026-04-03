@@ -17,6 +17,8 @@
 - `copilot` 与 `qwen` profile 已完成本机端到端验证
 - Android 发送消息时支持本地乐观入列，用户消息不再等 agent 回复后才出现
 - `qwen` 与 `copilot` 已接入流式 JSON bridge；`codex` 已统一到相同 JSON bridge 结构，当前仍以最终消息回传为主
+- Android 首页会按最后一次真实对话时间排序，不再被 heartbeat 保活时间污染
+- Android 会话页中的 agent 消息标签会按消息实际模型显示，例如 `gpt-5.4`、`glm-5`
 - 协议与架构文档
 - 本地 demo 脚本与基础测试
 
@@ -112,6 +114,8 @@ Android 客户端当前提供：
 - 快捷命令
 - 文本指令发送
 - 用户消息即时显示
+- 首页会按最后一次真实对话时间倒序排列
+- agent 消息标签按每条消息的实际模型显示
 - 首页新增会话入口，可直接创建新的 tmux-backed Codex 会话
 - 首页新增会话入口现可选择 `codex`、`copilot`、`qwen`
 - 新建会话时支持指定相对工作目录，默认根目录为 `~/code`

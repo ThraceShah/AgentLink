@@ -281,6 +281,10 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       metadata: message.command.args
     });
     broadcastTimelineEvent(userEvent);
+    const updatedAgent = store.getAgent(message.agentId);
+    if (updatedAgent) {
+      broadcastAgentDelta(updatedAgent);
+    }
 
     send(agentSocket, {
       type: "command",

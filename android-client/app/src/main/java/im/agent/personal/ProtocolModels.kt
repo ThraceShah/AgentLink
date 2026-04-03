@@ -2,6 +2,7 @@ package im.agent.personal
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 
 @Serializable
 data class BootstrapResponse(
@@ -31,6 +32,7 @@ data class TimelineEvent(
     val title: String? = null,
     val body: String? = null,
     val status: String? = null,
+    val metadata: JsonObject? = null,
     val artifact: Artifact? = null
 )
 

@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { AgentRuntime } from "../../../packages/sdk/src/index.js";
+import { resolveProviderModel } from "./model-resolver.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
 import { parseProviderStream } from "./stream-parser.js";
 
@@ -21,6 +22,7 @@ type ActiveExecTask = {
   commandOutputPath: string;
   commandStatusPath: string;
   emittedText: string;
+  model?: string;
 };
 
 const hubUrl = process.env.HUB_URL ?? "ws://127.0.0.1:8787/ws";
@@ -213,7 +215,8 @@ async function createExecTask(prompt: string): Promise<ActiveExecTask> {
     commandPromptPath: relativeShellPath(panePath, promptPath),
     commandOutputPath: relativeShellPath(panePath, outputPath),
     commandStatusPath: relativeShellPath(panePath, statusPath),
-    emittedText: ""
+    emittedText: "",
+    model: await resolveProviderModel(profile)
   };
 }
 
@@ -243,7 +246,11 @@ async function dispatchExecPrompt(prompt: string): Promise<void> {
   await runtime.emitEvent({
     eventType: "task_running",
     body: `${providerDisplayName(profile)} is working on your request.`,
-    status: "busy"
+    status: "busy",
+    metadata: {
+      model: task.model,
+      provider: profile
+    }
   });
 
   await sendLiteral(command);
@@ -270,7 +277,11 @@ async function pollExecTask(): Promise<void> {
     await runtime.emitEvent({
       id: task.eventId,
       eventType: "text_output",
-      body: candidateText
+      body: candidateText,
+      metadata: {
+        model: task.model,
+        provider: profile
+      }
     });
   }
 
@@ -289,7 +300,11 @@ async function pollExecTask(): Promise<void> {
     await runtime.emitEvent({
       id: task.eventId,
       eventType: "text_output",
-      body: finalText
+      body: finalText,
+      metadata: {
+        model: task.model,
+        provider: profile
+      }
     });
   }
 
@@ -463,7 +478,14 @@ function providerDisplayName(currentProfile: BridgeProfile): string {
 function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask): string {
   if (currentProfile === "codex") {
     return [
-      `codex exec --skip-git-repo-check -C . --sandbox workspace-write --json - < ${shellQuote(task.commandPromptPath)} > ${shellQuote(task.commandOutputPath)}`,
+      [
+        "codex exec",
+        "--skip-git-repo-check",
+        "-C .",
+        "--sandbox workspace-write",
+        task.model ? `-m ${shellQuote(task.model)}` : "",
+        "--json -"
+      ].filter(Boolean).join(" ") + ` < ${shellQuote(task.commandPromptPath)} > ${shellQuote(task.commandOutputPath)}`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");
   }
@@ -471,7 +493,15 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
   if (currentProfile === "copilot") {
     return [
       `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
-      `copilot -p \"$prompt\" --allow-all --add-dir . --output-format json --stream on > ${shellQuote(task.commandOutputPath)}`,
+      [
+        "copilot",
+        task.model ? `--model ${shellQuote(task.model)}` : "",
+        "-p \"$prompt\"",
+        "--allow-all",
+        "--add-dir .",
+        "--output-format json",
+        "--stream on"
+      ].filter(Boolean).join(" ") + ` > ${shellQuote(task.commandOutputPath)}`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");
   }
@@ -479,7 +509,15 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
   if (currentProfile === "qwen") {
     return [
       `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
-      `qwen -p \"$prompt\" --yolo --add-dir . -o stream-json --include-partial-messages > ${shellQuote(task.commandOutputPath)}`,
+      [
+        "qwen",
+        task.model ? `-m ${shellQuote(task.model)}` : "",
+        "-p \"$prompt\"",
+        "--yolo",
+        "--add-dir .",
+        "-o stream-json",
+        "--include-partial-messages"
+      ].filter(Boolean).join(" ") + ` > ${shellQuote(task.commandOutputPath)}`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");
   }

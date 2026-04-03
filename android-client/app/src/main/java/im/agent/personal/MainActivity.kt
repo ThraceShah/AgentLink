@@ -71,6 +71,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -97,6 +99,12 @@ private val inboxCardGradient = Brush.horizontalGradient(
         Color(0xFF2B3442),
         Color(0xFF222A36)
     )
+)
+
+private data class ConversationCardState(
+    val agent: AgentSnapshot,
+    val lastMessageAt: String,
+    val preview: String?
 )
 
 data class DebugCommandProbe(
@@ -229,6 +237,9 @@ private fun InboxScreen(
 ) {
     var showConnectionConfig by rememberSaveable { mutableStateOf(false) }
     var showCreateSessionDialog by rememberSaveable { mutableStateOf(false) }
+    val conversationCards = remember(state.agents, state.events) {
+        buildConversationCards(state.agents, state.events)
+    }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -283,8 +294,8 @@ private fun InboxScreen(
         ) {
             item {
                 InboxHeroCard(
-                    agents = state.agents,
-                    agentCount = state.agents.size,
+                    agents = conversationCards.map { it.agent },
+                    agentCount = conversationCards.size,
                     socketState = state.socketState,
                     connectionError = state.connectionError
                 )
@@ -302,15 +313,15 @@ private fun InboxScreen(
                 }
             }
 
-            if (state.agents.isEmpty()) {
+            if (conversationCards.isEmpty()) {
                 item {
                     EmptyInboxCard()
                 }
             } else {
-                items(state.agents, key = { it.agentId }) { agent ->
+                items(conversationCards, key = { it.agent.agentId }) { conversation ->
                     AgentConversationCard(
-                        agent = agent,
-                        onClick = { onSelectAgent(agent.agentId) }
+                        conversation = conversation,
+                        onClick = { onSelectAgent(conversation.agent.agentId) }
                     )
                 }
             }
@@ -668,9 +679,10 @@ private fun EmptyInboxCard() {
 
 @Composable
 private fun AgentConversationCard(
-    agent: AgentSnapshot,
+    conversation: ConversationCardState,
     onClick: () -> Unit
 ) {
+    val agent = conversation.agent
     Box {
         Card(
             modifier = Modifier
@@ -717,7 +729,7 @@ private fun AgentConversationCard(
                             }
                         }
                         Text(
-                            formatTimestamp(agent.lastSeenAt),
+                            formatTimestamp(conversation.lastMessageAt),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -731,7 +743,7 @@ private fun AgentConversationCard(
                         )
                     }
                     Text(
-                        agent.lastMessage ?: "Waiting for the next event.",
+                        conversation.preview ?: "Waiting for the next message.",
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1164,7 +1176,7 @@ private fun timelineTitle(event: TimelineEvent): String {
 private fun timelineSpeaker(event: TimelineEvent, agent: AgentSnapshot): String? {
     return when (event.eventType) {
         "user_command" -> null
-        else -> prettyAgentLabel(agent)
+        else -> eventModelLabel(event) ?: prettyAgentLabel(agent)
     }
 }
 
@@ -1193,6 +1205,66 @@ private fun timelineEventsForDisplay(events: List<TimelineEvent>): List<Timeline
     }
 }
 
+private fun buildConversationCards(
+    agents: List<AgentSnapshot>,
+    events: List<TimelineEvent>
+): List<ConversationCardState> {
+    val conversationByAgent = agents.associateBy { it.agentId }
+    val latestByAgent = mutableMapOf<String, TimelineEvent>()
+
+    for (event in events) {
+        if (!isConversationEvent(event)) {
+            continue
+        }
+
+        val current = latestByAgent[event.agentId]
+        if (current == null || event.timestamp > current.timestamp) {
+            latestByAgent[event.agentId] = event
+        }
+    }
+
+    return agents.map { agent ->
+        val latest = latestByAgent[agent.agentId]
+        ConversationCardState(
+            agent = conversationByAgent[agent.agentId] ?: agent,
+            lastMessageAt = latest?.timestamp ?: agent.lastSeenAt,
+            preview = latest?.let(::conversationPreview)
+        )
+    }.sortedByDescending { it.lastMessageAt }
+}
+
+private fun isConversationEvent(event: TimelineEvent): Boolean {
+    if (event.eventType == "task_running" || event.eventType == "task_completed" || event.eventType == "agent_started" || event.eventType == "agent_stopped") {
+        return false
+    }
+
+    if (event.eventType == "user_command" && event.body.isNullOrBlank()) {
+        return false
+    }
+
+    return conversationPreview(event) != null || event.artifact != null
+}
+
+private fun conversationPreview(event: TimelineEvent): String? {
+    val body = event.body?.trim()
+    if (!body.isNullOrEmpty()) {
+        return body
+    }
+
+    val caption = event.artifact?.caption?.trim()
+    if (!caption.isNullOrEmpty()) {
+        return caption
+    }
+
+    return when (event.eventType) {
+        "need_approval" -> "Waiting for approval."
+        "need_user_input" -> "Waiting for input."
+        "image_available" -> "Image preview available."
+        "artifact_generated" -> "Artifact available."
+        else -> null
+    }
+}
+
 @Composable
 private fun messageBubbleColors(event: TimelineEvent): Pair<Color, Color> {
     return when (event.eventType) {
@@ -1212,6 +1284,10 @@ private fun prettyAgentLabel(agent: AgentSnapshot): String {
         "tmux", "tmux-agent" -> "tmux"
         else -> agent.kind.lowercase()
     }
+}
+
+private fun eventModelLabel(event: TimelineEvent): String? {
+    return event.metadata?.get("model")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
 }
 
 private fun tmuxSessionLine(agent: AgentSnapshot): String {

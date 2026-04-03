@@ -9,6 +9,8 @@ import {
 
 type AgentInit = Omit<AgentSnapshot, "lastSeenAt" | "status" | "lastMessage"> & {
   status?: AgentSnapshot["status"];
+  lastSeenAt?: string;
+  lastMessage?: string;
 };
 
 export class HubStore {
@@ -26,8 +28,8 @@ export class HubStore {
       capabilities: agent.capabilities,
       quickCommands: agent.quickCommands,
       status: agent.status ?? previous?.status ?? "online",
-      lastSeenAt: nowIso(),
-      lastMessage: previous?.lastMessage
+      lastSeenAt: agent.lastSeenAt ?? previous?.lastSeenAt ?? nowIso(),
+      lastMessage: agent.lastMessage ?? previous?.lastMessage
     };
     this.agents.set(snapshot.agentId, snapshot);
     return snapshot;

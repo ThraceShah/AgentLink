@@ -43,3 +43,6 @@
 - 新增本地乐观用户消息：Android 在点击发送后会立即显示用户消息，并与服务端确认事件按同一 ID 去重。
 - 新增第一版 JSON streaming bridge：`qwen` 与 `copilot` 可从 JSON 输出中持续提取 assistant 文本增量并更新同一条消息。
 - `codex` 已统一接入 JSON bridge 路径，当前保留稳定的最终消息回传模式，为后续更强的交互式桥接预留结构。
+- 修复首页会话时间被 heartbeat 污染的问题：hub 不再把保活心跳误记为最后一次真实对话时间。
+- Android 首页改为按最后一次真实对话时间倒序排列，用户或 agent 只要有新消息，会话就会上移到顶部。
+- Android 会话页中的 agent 消息标签改为按消息实际模型显示，并为 `codex`、`qwen`、`copilot` bridge 写入逐条消息模型元数据。

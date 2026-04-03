@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.time.Instant
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -92,6 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     },
                     onTimelineEvent = { event ->
                         _uiState.value = _uiState.value.copy(
+                            agents = applyConversationEvent(_uiState.value.agents, event),
                             events = _uiState.value.events
                                 .filterNot { it.id == event.id }
                                 .plus(event)
@@ -259,14 +262,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun mergeBootstrap(bootstrap: BootstrapResponse) {
-        val mergedAgents = bootstrap.agents.sortedByDescending { it.lastSeenAt }
+        var mergedAgents = bootstrap.agents
         val existingEvents = _uiState.value.events.associateBy { it.id }.toMutableMap()
         for (event in bootstrap.events) {
             existingEvents[event.id] = event
+            mergedAgents = applyConversationEvent(mergedAgents, event)
         }
 
         _uiState.value = _uiState.value.copy(
-            agents = mergedAgents,
+            agents = mergedAgents.sortedByDescending { it.lastSeenAt },
             events = existingEvents.values.sortedBy { it.timestamp }
         )
     }
@@ -278,15 +282,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             eventType = "user_command",
             timestamp = Instant.now().toString(),
             title = "Command: $type",
-            body = text
+            body = text,
+            metadata = buildJsonObject {
+                put("source", "android-client")
+            }
         )
 
         _uiState.value = _uiState.value.copy(
+            agents = applyConversationEvent(_uiState.value.agents, optimisticEvent),
             events = _uiState.value.events
                 .filterNot { it.id == optimisticEvent.id }
                 .plus(optimisticEvent)
                 .sortedBy { it.timestamp }
         )
+    }
+
+    private fun applyConversationEvent(
+        agents: List<AgentSnapshot>,
+        event: TimelineEvent
+    ): List<AgentSnapshot> {
+        val summary = summarizeConversationEvent(event) ?: return agents
+        return agents.map { agent ->
+            if (agent.agentId != event.agentId) {
+                agent
+            } else {
+                agent.copy(
+                    lastSeenAt = event.timestamp,
+                    lastMessage = summary
+                )
+            }
+        }.sortedByDescending { it.lastSeenAt }
+    }
+
+    private fun summarizeConversationEvent(event: TimelineEvent): String? {
+        val body = event.body?.trim()
+        if (!body.isNullOrEmpty()) {
+            return body
+        }
+
+        val caption = event.artifact?.caption?.trim()
+        if (!caption.isNullOrEmpty()) {
+            return caption
+        }
+
+        return when (event.eventType) {
+            "need_approval" -> "Waiting for approval."
+            "need_user_input" -> "Waiting for input."
+            "image_available" -> "Image preview available."
+            "artifact_generated" -> "Artifact available."
+            else -> null
+        }
     }
 }
 
