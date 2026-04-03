@@ -15,7 +15,8 @@ data class MainUiState(
     val events: List<TimelineEvent> = emptyList(),
     val selectedAgentId: String? = null,
     val isConnecting: Boolean = false,
-    val connectionError: String? = null
+    val connectionError: String? = null,
+    val socketState: SocketConnectionState = SocketConnectionState.DISCONNECTED
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -50,9 +51,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(
                     hubOrigin = config.origin,
                     agents = bootstrap.agents,
-                    events = bootstrap.events
+                    events = bootstrap.events,
+                    socketState = SocketConnectionState.CONNECTING
                 )
                 repository!!.connect(
+                    onConnectionStateChange = { socketState ->
+                        _uiState.value = _uiState.value.copy(socketState = socketState)
+                    },
                     onAgentDelta = { agent ->
                         val updated = _uiState.value.agents
                             .filterNot { it.agentId == agent.agentId } + agent
@@ -68,7 +73,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
-                    connectionError = error.message ?: "Failed to connect to hub"
+                    connectionError = error.message ?: "Failed to connect to hub",
+                    socketState = SocketConnectionState.DISCONNECTED
                 )
             }
 

@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -106,16 +107,17 @@ private fun AppContent(
                 Button(onClick = onConnect, enabled = !state.isConnecting) {
                     Text(if (state.isConnecting) "Connecting" else "Connect")
                 }
+                SocketStateChip(state.socketState)
                 state.connectionError?.let { Text(it) }
             }
             Spacer(modifier = Modifier.height(4.dp))
             Text(selectedAgent?.displayName ?: "Select an agent", style = MaterialTheme.typography.headlineSmall)
             selectedAgent?.let { agent ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onQuickCommand(agent.agentId, "status") }) { Text("Status") }
-                    Button(onClick = { onQuickCommand(agent.agentId, "approve") }) { Text("Approve") }
-                    Button(onClick = { onQuickCommand(agent.agentId, "retry") }) { Text("Retry") }
-                    Button(onClick = { onQuickCommand(agent.agentId, "stop") }) { Text("Stop") }
+                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "status") }) { Text("Status") }
+                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "approve") }) { Text("Approve") }
+                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "retry") }) { Text("Retry") }
+                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "stop") }) { Text("Stop") }
                 }
                 InstructionComposer(agent.agentId, onSendInstruction)
             }
@@ -141,6 +143,16 @@ private fun AppContent(
             }
         }
     }
+}
+
+@Composable
+private fun SocketStateChip(socketState: SocketConnectionState) {
+    val label = when (socketState) {
+        SocketConnectionState.DISCONNECTED -> "Socket: offline"
+        SocketConnectionState.CONNECTING -> "Socket: connecting"
+        SocketConnectionState.CONNECTED -> "Socket: live"
+    }
+    Text(label, style = MaterialTheme.typography.bodyMedium)
 }
 
 @Composable
