@@ -134,10 +134,10 @@ adb logcat -d --pid="$pid"
 需要重点关注的现象：
 
 - App 列表页已加载 agent，说明 bootstrap HTTP 已打通
-- 顶部显示 `Socket: live`，说明 WebSocket 已建立
+- 顶部显示 `Live`，说明 WebSocket 已建立
 - 命令发送成功后，hub 时间线中应新增 `user_command`
 - 对于 `status` 或 `send_text`，应继续观察到 agent 回执事件
-- 若顶部显示 `Socket: offline, polling`，说明实时通道不可用，但客户端仍会通过 HTTP 定时刷新
+- 若顶部显示 `Fallback`，说明实时通道不可用，但客户端仍会通过 HTTP 定时刷新
 
 若当前环境不适合稳定执行 `adb shell input tap`，可以直接使用调试命令探针：
 

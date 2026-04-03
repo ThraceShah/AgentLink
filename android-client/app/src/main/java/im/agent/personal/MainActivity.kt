@@ -4,14 +4,17 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -51,6 +55,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,12 +65,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -209,7 +220,8 @@ private fun AppContent(
                 onHubOriginChange = onHubOriginChange,
                 onConnect = onConnect,
                 onSelectAgent = onSelectAgent,
-                onCreateSession = onCreateSession
+                onCreateSession = onCreateSession,
+                onDeleteSession = onDeleteSession
             )
         } else {
             ConversationScreen(
@@ -233,10 +245,12 @@ private fun InboxScreen(
     onHubOriginChange: (String) -> Unit,
     onConnect: () -> Unit,
     onSelectAgent: (String) -> Unit,
-    onCreateSession: (String, String, String) -> Unit
+    onCreateSession: (String, String, String) -> Unit,
+    onDeleteSession: (String) -> Unit
 ) {
     var showConnectionConfig by rememberSaveable { mutableStateOf(false) }
     var showCreateSessionDialog by rememberSaveable { mutableStateOf(false) }
+    var deleteTarget by remember { mutableStateOf<ConversationCardState?>(null) }
     val conversationCards = remember(state.agents, state.events) {
         buildConversationCards(state.agents, state.events)
     }
@@ -272,6 +286,31 @@ private fun InboxScreen(
             )
         }
     ) { paddingValues ->
+        deleteTarget?.let { target ->
+            AlertDialog(
+                onDismissRequest = { deleteTarget = null },
+                title = { Text("Delete session") },
+                text = {
+                    Text("This will stop the tmux session and remove ${target.agent.displayName} from the inbox.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            onDeleteSession(target.agent.agentId)
+                            deleteTarget = null
+                        }
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteTarget = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         if (showCreateSessionDialog) {
             CreateSessionDialog(
                 profiles = state.profiles,
@@ -321,7 +360,8 @@ private fun InboxScreen(
                 items(conversationCards, key = { it.agent.agentId }) { conversation ->
                     AgentConversationCard(
                         conversation = conversation,
-                        onClick = { onSelectAgent(conversation.agent.agentId) }
+                        onClick = { onSelectAgent(conversation.agent.agentId) },
+                        onDelete = { deleteTarget = conversation }
                     )
                 }
             }
@@ -356,14 +396,11 @@ private fun ConversationScreen(
                 title = {
                     Column {
                         Text(agent.displayName, fontWeight = FontWeight.SemiBold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusBadge(agent.status)
-                            Text(
-                                agent.kind,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            agent.kind,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 navigationIcon = {
@@ -553,8 +590,8 @@ private fun ConnectionConfigCard(
                 Text(
                     when (socketState) {
                         SocketConnectionState.CONNECTED -> "Realtime socket connected"
-                        SocketConnectionState.CONNECTING -> "Connecting and polling"
-                        SocketConnectionState.DISCONNECTED -> "Polling fallback active"
+                        SocketConnectionState.CONNECTING -> "Connecting with fallback sync"
+                        SocketConnectionState.DISCONNECTED -> "HTTP fallback sync active"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall
@@ -677,108 +714,164 @@ private fun EmptyInboxCard() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AgentConversationCard(
     conversation: ConversationCardState,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val agent = conversation.agent
-    Box {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-            ),
-            shape = RoundedCornerShape(24.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-        ) {
-            Row(
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    var showActions by remember { mutableStateOf(false) }
+    val dismissState = rememberSwipeToDismissBoxState(
+        positionalThreshold = { it * 0.35f },
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.EndToStart) {
+                onDelete()
+            }
+            false
+        }
+    )
+
+    if (showActions) {
+        AlertDialog(
+            onDismissRequest = { showActions = false },
+            title = { Text(agent.displayName) },
+            text = { Text("Choose an action for this conversation.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showActions = false
+                        onDelete()
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showActions = false
+                            copyText(
+                                clipboardManager = clipboardManager,
+                                context = context,
+                                label = "Conversation preview",
+                                value = conversation.preview ?: agent.displayName
+                            )
+                        }
+                    ) {
+                        Text("Copy")
+                    }
+                    TextButton(onClick = { showActions = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
+    }
+
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = {
+            DeleteSwipeBackground()
+        }
+    ) {
+        Box {
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(inboxCardGradient)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = {
+                            showActions = true
+                        }
+                    ),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+                ),
+                shape = RoundedCornerShape(24.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
             ) {
-                AgentAvatar(agent = agent)
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(inboxCardGradient)
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    AgentAvatar(agent = agent)
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                agent.displayName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            prettyAgentLabel(agent).takeIf { it.isNotBlank() }?.let {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    it,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    agent.displayName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
                                 )
+                                prettyAgentLabel(agent).takeIf { it.isNotBlank() }?.let {
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
+                            Text(
+                                formatTimestamp(conversation.lastMessageAt),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            StatusBadge(agent.status)
+                            Text(
+                                tmuxSessionLine(agent),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         Text(
-                            formatTimestamp(conversation.lastMessageAt),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        StatusBadge(agent.status)
-                        Text(
-                            tmuxSessionLine(agent),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Text(
-                        conversation.preview ?: "Waiting for the next message.",
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (agent.capabilities.isNotEmpty()) {
-                        Text(
-                            agent.capabilities.take(3).joinToString("  ·  "),
-                            maxLines = 1,
+                            conversation.preview ?: "Waiting for the next message.",
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
-        }
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 14.dp)
-                .offset(y = (-8).dp),
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            shape = RoundedCornerShape(999.dp)
-        ) {
-            Text(
-                text = eventTone(agent.status),
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer
-            )
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 14.dp)
+                    .offset(y = (-8).dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Text(
+                    text = eventTone(agent.status),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AgentHeaderCard(agent: AgentSnapshot, socketState: SocketConnectionState) {
     Card(
@@ -812,17 +905,16 @@ private fun AgentHeaderCard(agent: AgentSnapshot, socketState: SocketConnectionS
                 SocketStateChip(socketState)
             }
 
-            if (agent.capabilities.isNotEmpty()) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    agent.capabilities.forEach { capability ->
-                        CapabilityPill(label = capability)
-                    }
-                }
-            }
+            Text(
+                "Status: ${agent.status.replace('_', ' ')}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TimelineMessageCard(
     event: TimelineEvent,
@@ -831,6 +923,8 @@ private fun TimelineMessageCard(
 ) {
     val bubbleColors = messageBubbleColors(event)
     val speaker = timelineSpeaker(event, agent)
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val alignment = when (event.eventType) {
         "user_command" -> Arrangement.End
         else -> Arrangement.Start
@@ -841,7 +935,21 @@ private fun TimelineMessageCard(
         horizontalArrangement = alignment
     ) {
         Card(
-            modifier = Modifier.fillMaxWidth(0.9f),
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = {
+                        timelineCopyText(event)?.let { text ->
+                            copyText(
+                                clipboardManager = clipboardManager,
+                                context = context,
+                                label = "Message",
+                                value = text
+                            )
+                        }
+                    }
+                ),
             colors = CardDefaults.cardColors(containerColor = bubbleColors.first),
             shape = RoundedCornerShape(
                 topStart = 22.dp,
@@ -948,18 +1056,6 @@ private fun ConversationComposer(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                quickCommandLabels(agent).forEach { command ->
-                    AssistChip(
-                        onClick = { onQuickCommand(agent.agentId, command) },
-                        label = { Text(commandLabel(command)) },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-                            labelColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    )
-                }
-            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -969,14 +1065,30 @@ private fun ConversationComposer(
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.weight(1f),
-                    label = { Text("Instruction") },
-                    placeholder = { Text("Ask the agent to continue, approve, summarize...") },
+                    label = { Text("Message") },
+                    placeholder = { Text(slashCommandPlaceholder(agent)) },
+                    supportingText = {
+                        val supported = slashCommandLabels(agent)
+                        Text(
+                            if (supported.isEmpty()) {
+                                "Send plain text instructions."
+                            } else {
+                                "Commands: ${supported.joinToString(" ")}"
+                            }
+                        )
+                    },
                     maxLines = 4
                 )
                 Button(
                     onClick = {
                         if (text.isNotBlank()) {
-                            onSendInstruction(agent.agentId, text.trim())
+                            val input = text.trim()
+                            val slashCommand = parseSlashCommand(agent, input)
+                            if (slashCommand != null) {
+                                onQuickCommand(agent.agentId, slashCommand)
+                            } else {
+                                onSendInstruction(agent.agentId, input)
+                            }
                             text = ""
                         }
                     },
@@ -1045,25 +1157,10 @@ private fun StatusBadge(status: String) {
 }
 
 @Composable
-private fun CapabilityPill(label: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.82f),
-        shape = RoundedCornerShape(999.dp)
-    ) {
-        Text(
-            label,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer
-        )
-    }
-}
-
-@Composable
 private fun SocketStateChip(socketState: SocketConnectionState) {
     val (container, content, label) = when (socketState) {
-        SocketConnectionState.DISCONNECTED -> Triple(Color(0xFF4F2C2A), Color(0xFFFFC6C3), "Polling")
-        SocketConnectionState.CONNECTING -> Triple(Color(0xFF51411A), Color(0xFFFFE2A8), "Connecting")
+        SocketConnectionState.DISCONNECTED -> Triple(Color(0xFF4F2C2A), Color(0xFFFFC6C3), "Fallback")
+        SocketConnectionState.CONNECTING -> Triple(Color(0xFF51411A), Color(0xFFFFE2A8), "Syncing")
         SocketConnectionState.CONNECTED -> Triple(Color(0xFF183A35), Color(0xFFA7F1E4), "Live")
     }
     Surface(color = container, shape = RoundedCornerShape(999.dp)) {
@@ -1108,6 +1205,25 @@ private fun SummaryPill(label: String, value: String, accent: Color) {
 }
 
 @Composable
+private fun DeleteSwipeBackground() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xFF6A2630))
+            .padding(horizontal = 20.dp),
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        Text(
+            "Delete",
+            color = Color(0xFFFFD9DD),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
 private fun EmptyTimelineCard() {
     Card(
         colors = CardDefaults.cardColors(
@@ -1127,7 +1243,7 @@ private fun EmptyTimelineCard() {
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                "Use a quick command or send an instruction to start this session.",
+                "Send a message or use a slash command to start this session.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1143,8 +1259,28 @@ private fun quickCommandLabels(agent: AgentSnapshot): List<String> {
     return preferred.distinct().take(5)
 }
 
-private fun commandLabel(command: String): String {
-    return command.replaceFirstChar { it.uppercase() }.replace('_', ' ')
+private fun slashCommandLabels(agent: AgentSnapshot): List<String> {
+    return quickCommandLabels(agent).map { "/$it" }
+}
+
+private fun slashCommandPlaceholder(agent: AgentSnapshot): String {
+    val commands = slashCommandLabels(agent)
+    return if (commands.isEmpty()) {
+        "Ask the agent to continue, summarize, or fix something"
+    } else {
+        "Send text or ${commands.joinToString(" ")}"
+    }
+}
+
+private fun parseSlashCommand(agent: AgentSnapshot, input: String): String? {
+    if (!input.startsWith("/")) {
+        return null
+    }
+    val command = input.drop(1).trim().lowercase()
+    if (command.isBlank()) {
+        return null
+    }
+    return quickCommandLabels(agent).firstOrNull { it.lowercase() == command }
 }
 
 private fun eventTone(status: String): String {
@@ -1265,6 +1401,20 @@ private fun conversationPreview(event: TimelineEvent): String? {
     }
 }
 
+private fun timelineCopyText(event: TimelineEvent): String? {
+    val body = event.body?.trim()
+    if (!body.isNullOrEmpty()) {
+        return body
+    }
+
+    val caption = event.artifact?.caption?.trim()
+    if (!caption.isNullOrEmpty()) {
+        return caption
+    }
+
+    return event.artifact?.fileName?.trim()?.takeIf { it.isNotEmpty() }
+}
+
 @Composable
 private fun messageBubbleColors(event: TimelineEvent): Pair<Color, Color> {
     return when (event.eventType) {
@@ -1314,6 +1464,16 @@ private fun formatTimestamp(raw: String): String {
         val instant = Instant.parse(raw)
         DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(instant)
     }.getOrElse { raw }
+}
+
+private fun copyText(
+    clipboardManager: ClipboardManager,
+    context: android.content.Context,
+    label: String,
+    value: String
+) {
+    clipboardManager.setText(AnnotatedString(value))
+    Toast.makeText(context, "$label copied", Toast.LENGTH_SHORT).show()
 }
 
 private fun readDebugCommandProbe(intent: Intent?, isDebuggableBuild: Boolean): DebugCommandProbe? {

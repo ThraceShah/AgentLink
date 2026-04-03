@@ -46,3 +46,6 @@
 - 修复首页会话时间被 heartbeat 污染的问题：hub 不再把保活心跳误记为最后一次真实对话时间。
 - Android 首页改为按最后一次真实对话时间倒序排列，用户或 agent 只要有新消息，会话就会上移到顶部。
 - Android 会话页中的 agent 消息标签改为按消息实际模型显示，并为 `codex`、`qwen`、`copilot` bridge 写入逐条消息模型元数据。
+- 优化 Android 会话操作体验：首页会话卡片支持左滑删除与长按操作菜单，会话卡片和消息气泡均支持长按复制。
+- 清理 Android 会话页冗余标签：移除顶部与底部重复的命令标签，改为通过 slash command 输入触发 `status`、`retry`、`stop` 等命令。
+- 收紧 Android 降级连接态文案，使用更短的 `Live`、`Syncing`、`Fallback` 状态标识，修复部分会话页排版拥挤问题。
