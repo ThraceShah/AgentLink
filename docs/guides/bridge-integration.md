@@ -63,10 +63,22 @@ AGENT_EVENT {"eventType":"need_approval","title":"Review patch","body":"Please a
 该模式会：
 
 - 默认把 agent 标识为 `codex-bridge`
-- 在未显式提供 `TMUX_COMMAND` 时默认尝试启动 `codex`
+- 默认使用 `TMUX_CODEX_MODE=exec`
+- 在 `exec` 模式下，tmux session 作为 shell 容器，`send_text` 会触发 `codex exec`
+- 通过 `--output-last-message` 稳定提取最终回复，不依赖向 TUI 注入按键后的屏幕解析
 - 对 pane 输出做增量提取，而不是每次发送整屏摘要
 - 尽量过滤输入回显和常见过程噪音
 - 识别常见 approval / input 提示
+
+模式说明：
+
+- `TMUX_CODEX_MODE=exec`
+  - 推荐默认值
+  - 更稳定
+  - 已完成真实端到端验证
+- `TMUX_CODEX_MODE=interactive`
+  - 保留为兼容回退
+  - 依赖交互式 TUI 输入注入，稳定性较差
 
 推荐启动方式：
 
@@ -80,11 +92,18 @@ npm run dev:codex-bridge
 TMUX_BRIDGE_PROFILE=codex TMUX_SESSION=my-codex npm run dev:tmux-agent
 ```
 
+若要切回交互式 TUI 模式：
+
+```bash
+TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=interactive TMUX_COMMAND='codex --no-alt-screen' npm run dev:tmux-agent
+```
+
 ## 关键环境变量
 
 - `TMUX_SESSION`：目标 session 名
 - `TMUX_COMMAND`：若指定，则由 bridge 创建并管理该 session
 - `TMUX_BRIDGE_PROFILE`：`generic` 或 `codex`
+- `TMUX_CODEX_MODE`：`exec` 或 `interactive`
 - `IRIS_TMUX_PANE`：可选，显式绑定某个 pane
 - `TMUX_POLL_MS`：轮询间隔
 - `TMUX_APPROVE_TEXT`：`approve` 命令默认发送内容

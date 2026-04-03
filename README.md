@@ -12,6 +12,7 @@
 - Android 原生客户端骨架：Jetpack Compose + OkHttp WebSocket
 - tmux bridge：把 tmux session / pane 接入为可控制 agent
 - tmux bridge 现已支持 `codex` profile，可直接作为本机 Codex bridge 使用
+- `codex` profile 默认走稳定的 `codex exec` 模式，已完成真实端到端验证
 - 协议与架构文档
 - 本地 demo 脚本与基础测试
 

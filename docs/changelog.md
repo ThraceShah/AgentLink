@@ -27,3 +27,4 @@
 - 修复 Android 会话默认滚动方向，进入会话页时优先定位到最新消息，并精简时间线中的协议标签展示。
 - 将示例 agent 从回声逻辑升级为 OpenAI bridge；未配置 `OPENAI_API_KEY` 时会明确提示缺失条件。
 - 增强 `tmux-agent` 为第一版 Codex bridge，支持 `codex` profile、增量输出提取、最近有效回复缓存和基础提示识别。
+- 将 `codex` profile 默认切到稳定的 `codex exec` 模式，并完成真实端到端验证：`send_text` 已能返回真实 Codex 回复。
