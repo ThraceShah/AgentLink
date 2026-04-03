@@ -58,6 +58,12 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/session-config") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(sessionManager.getSessionConfig()));
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/admin/prune-offline") {
       const removedAgentIds = store.pruneOfflineAgents();
       res.writeHead(200, { "content-type": "application/json" });
@@ -75,11 +81,13 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
         const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
           sessionName?: string;
           profileId?: string;
+          workdir?: string;
         };
 
         const result = await sessionManager.createSession({
           sessionName: payload.sessionName ?? "",
           profileId: payload.profileId ?? "",
+          workdir: payload.workdir ?? "",
           hubUrl: `ws://127.0.0.1:${activePort}/ws`
         });
         res.writeHead(201, { "content-type": "application/json" });

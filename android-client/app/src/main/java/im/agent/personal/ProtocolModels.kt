@@ -90,6 +90,11 @@ data class AgentProfilesResponse(
 )
 
 @Serializable
+data class SessionConfigResponse(
+    val workspaceRootHint: String
+)
+
+@Serializable
 data class AgentProfile(
     val id: String,
     val label: String
@@ -98,7 +103,8 @@ data class AgentProfile(
 @Serializable
 data class CreateSessionRequest(
     val sessionName: String,
-    val profileId: String
+    val profileId: String,
+    val workdir: String
 )
 
 @Serializable

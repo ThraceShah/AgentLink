@@ -107,18 +107,32 @@ Android 客户端当前提供：
 - 快捷命令
 - 文本指令发送
 - 首页新增会话入口，可直接创建新的 tmux-backed Codex 会话
+- 新建会话时支持指定相对工作目录，默认根目录为 `~/code`
 - 可配置 hub 地址
 - 图片 artifact 预览
 - 调试命令探针，可通过 `adb am start` 自动触发一次命令发送
 - Android 端命令发送的 HTTP 回退通道，提升私网联调稳定性
 - 可选的 Tailscale Serve 接入模式，用于绕过部分设备对 `100.x.x.x:port` 的直连异常
 
-当前首页的 `New` / `Create tmux session` 入口会向 hub 请求：
+当前首页的 `New` 入口会向 hub 请求：
 
 1. 查询本机可用 agent profile
-2. 创建一个新的 tmux session
-3. 拉起对应 bridge
-4. 让新会话自动出现在联系人列表中
+2. 根据用户输入的相对 workdir，在默认工作区根目录下创建或复用目录
+3. 创建一个新的 tmux session，并将该目录作为工作目录
+4. 拉起对应 bridge
+5. 让新会话自动出现在联系人列表中
+
+Hub 默认使用 `~/code` 作为工作区根目录。若要修改，可在启动 hub 前设置：
+
+```bash
+export SESSION_WORKDIR_ROOT_RELATIVE=code
+```
+
+该变量应保持为相对于用户 home 的路径片段，例如：
+
+- `code`
+- `workspace`
+- `projects/agent-lab`
 
 Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明见：
 

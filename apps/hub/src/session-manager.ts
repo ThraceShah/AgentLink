@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -14,6 +17,7 @@ export type AgentProfile = {
 export type CreateSessionInput = {
   sessionName: string;
   profileId: string;
+  workdir: string;
   hubUrl: string;
 };
 
@@ -34,6 +38,12 @@ export class SessionManager {
     return profiles;
   }
 
+  getSessionConfig(): { workspaceRootHint: string } {
+    return {
+      workspaceRootHint: formatWorkspaceRootHint(resolveWorkspaceRoot())
+    };
+  }
+
   async createSession(input: CreateSessionInput): Promise<{ sessionName: string; profile: AgentProfile }> {
     const profile = (await this.listProfiles()).find((item) => item.id === input.profileId);
     if (!profile) {
@@ -45,7 +55,9 @@ export class SessionManager {
       throw new Error("session name is required");
     }
 
-    await this.ensureTmuxSession(sessionName, profile);
+    const workingDirectory = resolveWorkingDirectory(input.workdir);
+    await mkdir(workingDirectory, { recursive: true });
+    await this.ensureTmuxSession(sessionName, profile, workingDirectory);
     await this.startBridge(sessionName, profile, input.hubUrl);
 
     return { sessionName, profile };
@@ -62,13 +74,17 @@ export class SessionManager {
     }
   }
 
-  private async ensureTmuxSession(sessionName: string, profile: AgentProfile): Promise<void> {
+  private async ensureTmuxSession(
+    sessionName: string,
+    profile: AgentProfile,
+    workingDirectory: string
+  ): Promise<void> {
     if (await this.tmuxSessionExists(sessionName)) {
       return;
     }
 
     const command = profile.command ?? defaultSessionCommand(profile);
-    await execFileAsync("tmux", ["new-session", "-d", "-s", sessionName, "sh", "-lc", command], {
+    await execFileAsync("tmux", ["new-session", "-d", "-s", sessionName, "-c", workingDirectory, "sh", "-lc", command], {
       encoding: "utf8"
     });
   }
@@ -116,6 +132,63 @@ function defaultSessionCommand(profile: AgentProfile): string {
 
 function sanitizeSessionName(input: string): string {
   return input.trim().replace(/[^A-Za-z0-9._-]/g, "-").replace(/-+/g, "-");
+}
+
+function resolveWorkingDirectory(workdir: string): string {
+  const sanitized = sanitizeWorkdir(workdir);
+  if (!sanitized) {
+    throw new Error("workdir is required");
+  }
+  return path.join(resolveWorkspaceRoot(), sanitized);
+}
+
+function sanitizeWorkdir(input: string): string {
+  const normalized = input
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/");
+  if (!normalized) {
+    return "";
+  }
+
+  const segments = normalized.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    throw new Error("workdir must stay inside workspace root");
+  }
+
+  const safeSegments = segments.map((segment) =>
+    segment.replace(/[^A-Za-z0-9._-]/g, "-").replace(/-+/g, "-")
+  );
+  if (safeSegments.some((segment) => segment.length === 0)) {
+    throw new Error("workdir contains unsupported path segment");
+  }
+
+  return safeSegments.join("/");
+}
+
+function resolveWorkspaceRoot(): string {
+  const configured = process.env.SESSION_WORKDIR_ROOT_RELATIVE?.trim() || "code";
+  const safeRelative = configured
+    .replaceAll("\\", "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .filter((segment) => segment !== "." && segment !== "..")
+    .join("/");
+  return path.join(homedir(), safeRelative || "code");
+}
+
+function formatWorkspaceRootHint(workspaceRoot: string): string {
+  const home = homedir();
+  if (workspaceRoot === home) {
+    return "~";
+  }
+  if (workspaceRoot.startsWith(`${home}${path.sep}`)) {
+    return `~/${path.relative(home, workspaceRoot).replaceAll(path.sep, "/")}`;
+  }
+  return "~";
 }
 
 function shellToken(value: string): string {

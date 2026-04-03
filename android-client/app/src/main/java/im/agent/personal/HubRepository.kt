@@ -41,16 +41,21 @@ class HubRepository(
         return get("/api/agent-profiles")
     }
 
+    suspend fun fetchSessionConfig(): SessionConfigResponse {
+        return get("/api/session-config")
+    }
+
     suspend fun pruneOfflineSessions(): PruneOfflineResponse {
         return postEmpty("/api/admin/prune-offline")
     }
 
-    suspend fun createSession(sessionName: String, profileId: String): CreateSessionResponse {
+    suspend fun createSession(sessionName: String, profileId: String, workdir: String): CreateSessionResponse {
         return post(
             path = "/api/sessions",
             payload = CreateSessionRequest(
                 sessionName = sessionName,
-                profileId = profileId
+                profileId = profileId,
+                workdir = workdir
             )
         )
     }

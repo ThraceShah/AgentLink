@@ -17,6 +17,7 @@ data class MainUiState(
     val agents: List<AgentSnapshot> = emptyList(),
     val events: List<TimelineEvent> = emptyList(),
     val profiles: List<AgentProfile> = emptyList(),
+    val workspaceRootHint: String = "~/code",
     val selectedAgentId: String? = null,
     val isConnecting: Boolean = false,
     val isCreatingSession: Boolean = false,
@@ -53,6 +54,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val config = resolved.first
                 val bootstrap = resolved.second
                 val profiles = resolved.third
+                val sessionConfig = resolved.fourth
                 configStore.save(config)
 
                 _uiState.value = _uiState.value.copy(
@@ -60,6 +62,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     agents = bootstrap.agents,
                     events = bootstrap.events,
                     profiles = profiles,
+                    workspaceRootHint = sessionConfig.workspaceRootHint,
                     socketState = SocketConnectionState.CONNECTING
                 )
                 repository!!.connect(
@@ -118,21 +121,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository?.sendCommand(agentId, "send_text", text)
     }
 
-    fun createSession(profileId: String, sessionName: String) {
-        if (profileId.isBlank() || sessionName.isBlank()) {
+    fun createSession(profileId: String, sessionName: String, workdir: String) {
+        if (profileId.isBlank() || sessionName.isBlank() || workdir.isBlank()) {
             return
         }
 
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isCreatingSession = true, connectionError = null)
             runCatching {
-                repository?.createSession(sessionName = sessionName, profileId = profileId)
+                repository?.createSession(
+                    sessionName = sessionName,
+                    profileId = profileId,
+                    workdir = workdir
+                )
                 repeat(12) {
                     delay(500)
                     val bootstrap = repository?.fetchBootstrap() ?: return@repeat
                     val profiles = repository?.fetchProfiles()?.profiles ?: emptyList()
+                    val sessionConfig = repository?.fetchSessionConfig()
                     mergeBootstrap(bootstrap)
-                    _uiState.value = _uiState.value.copy(profiles = profiles)
+                    _uiState.value = _uiState.value.copy(
+                        profiles = profiles,
+                        workspaceRootHint = sessionConfig?.workspaceRootHint ?: _uiState.value.workspaceRootHint
+                    )
                     val matched = bootstrap.agents.firstOrNull { it.displayName == sessionName || it.agentId == sessionName }
                     if (matched != null) {
                         _uiState.value = _uiState.value.copy(selectedAgentId = matched.agentId)
@@ -158,7 +169,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
     }
 
-    private suspend fun connectWithFallback(config: HubConfig): Triple<HubConfig, BootstrapResponse, List<AgentProfile>> {
+    private suspend fun connectWithFallback(
+        config: HubConfig
+    ): Quadruple<HubConfig, BootstrapResponse, List<AgentProfile>, SessionConfigResponse> {
         var lastError: Throwable? = null
 
         for (candidate in config.connectionCandidates()) {
@@ -172,7 +185,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 nextRepository.pruneOfflineSessions()
                 val bootstrap = nextRepository.fetchBootstrap()
                 val profiles = nextRepository.fetchProfiles().profiles
-                return Triple(candidate, bootstrap, profiles)
+                val sessionConfig = nextRepository.fetchSessionConfig()
+                return Quadruple(candidate, bootstrap, profiles, sessionConfig)
             } catch (error: Throwable) {
                 lastError = error
             }
@@ -225,3 +239,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 }
+
+data class Quadruple<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)

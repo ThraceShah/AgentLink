@@ -104,8 +104,16 @@ TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=interactive TMUX_COMMAND='codex --no-a
 当前 hub 已提供轻量会话管理接口：
 
 - `GET /api/agent-profiles`
+- `GET /api/session-config`
 - `POST /api/sessions`
 - `POST /api/admin/prune-offline`
+
+其中：
+
+- `GET /api/session-config` 用于返回当前 Hub 的工作区根目录提示，供 Android 新建会话弹窗展示。
+- `POST /api/sessions` 现需同时提交 `sessionName`、`profileId` 和 `workdir`。
+- `workdir` 必须是相对于工作区根目录的路径，例如 `test` 或 `tests/first_test`。
+- Hub 默认会将工作区根目录解析为 `~/code`，也可以通过 `SESSION_WORKDIR_ROOT_RELATIVE` 修改为其他相对路径。
 
 Android 首页的“新增会话”按钮实际会调用这些接口。
 

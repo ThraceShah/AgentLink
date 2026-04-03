@@ -86,16 +86,16 @@ private const val debugHubOriginKey = "debug_hub_origin"
 
 private val appGradient = Brush.verticalGradient(
     colors = listOf(
-        Color(0xFF0C1016),
-        Color(0xFF111722),
-        Color(0xFF181E28)
+        Color(0xFF121824),
+        Color(0xFF192130),
+        Color(0xFF202938)
     )
 )
 
 private val inboxCardGradient = Brush.horizontalGradient(
     colors = listOf(
-        Color(0xFF20252F),
-        Color(0xFF171C25)
+        Color(0xFF2B3442),
+        Color(0xFF222A36)
     )
 )
 
@@ -179,7 +179,7 @@ private fun AppContent(
     onConnect: () -> Unit,
     onSelectAgent: (String) -> Unit,
     onBackToInbox: () -> Unit,
-    onCreateSession: (String, String) -> Unit,
+    onCreateSession: (String, String, String) -> Unit,
     onQuickCommand: (String, String) -> Unit,
     onSendInstruction: (String, String) -> Unit
 ) {
@@ -222,7 +222,7 @@ private fun InboxScreen(
     onHubOriginChange: (String) -> Unit,
     onConnect: () -> Unit,
     onSelectAgent: (String) -> Unit,
-    onCreateSession: (String, String) -> Unit
+    onCreateSession: (String, String, String) -> Unit
 ) {
     var showConnectionConfig by rememberSaveable { mutableStateOf(false) }
     var showCreateSessionDialog by rememberSaveable { mutableStateOf(false) }
@@ -261,10 +261,11 @@ private fun InboxScreen(
         if (showCreateSessionDialog) {
             CreateSessionDialog(
                 profiles = state.profiles,
+                workspaceRootHint = state.workspaceRootHint,
                 isCreating = state.isCreatingSession,
                 onDismiss = { showCreateSessionDialog = false },
-                onConfirm = { profileId, sessionName ->
-                    onCreateSession(profileId, sessionName)
+                onConfirm = { profileId, sessionName, workdir ->
+                    onCreateSession(profileId, sessionName, workdir)
                     showCreateSessionDialog = false
                 }
             )
@@ -282,8 +283,7 @@ private fun InboxScreen(
                     agents = state.agents,
                     agentCount = state.agents.size,
                     socketState = state.socketState,
-                    connectionError = state.connectionError,
-                    onCreateSession = { showCreateSessionDialog = true }
+                    connectionError = state.connectionError
                 )
             }
 
@@ -406,8 +406,7 @@ private fun InboxHeroCard(
     agents: List<AgentSnapshot>,
     agentCount: Int,
     socketState: SocketConnectionState,
-    connectionError: String?,
-    onCreateSession: () -> Unit
+    connectionError: String?
 ) {
     val runningCount = agents.count { it.status.equals("busy", ignoreCase = true) || it.status.equals("running", ignoreCase = true) }
     val waitingCount = agents.count {
@@ -454,9 +453,6 @@ private fun InboxHeroCard(
                 SummaryPill(label = "Running", value = runningCount.toString(), accent = Color(0xFFFFC76C))
                 SummaryPill(label = "Waiting", value = waitingCount.toString(), accent = Color(0xFFFF9A76))
                 SummaryPill(label = "Risk", value = riskCount.toString(), accent = Color(0xFFFF8D92))
-            }
-            Button(onClick = onCreateSession) {
-                Text("Create tmux session")
             }
             connectionError?.let {
                 Text(
@@ -526,11 +522,13 @@ private fun ConnectionConfigCard(
 @Composable
 private fun CreateSessionDialog(
     profiles: List<AgentProfile>,
+    workspaceRootHint: String,
     isCreating: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (String, String) -> Unit
+    onConfirm: (String, String, String) -> Unit
 ) {
     var sessionName by rememberSaveable { mutableStateOf("") }
+    var workdir by rememberSaveable { mutableStateOf("") }
     var selectedProfileId by rememberSaveable(profiles) {
         mutableStateOf(profiles.firstOrNull()?.id.orEmpty())
     }
@@ -575,12 +573,26 @@ private fun CreateSessionDialog(
                     placeholder = { Text("for example: codex-fix-login") },
                     singleLine = true
                 )
+                OutlinedTextField(
+                    value = workdir,
+                    onValueChange = { workdir = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Workdir") },
+                    placeholder = { Text("for example: tests/first_test") },
+                    singleLine = true,
+                    supportingText = {
+                        Text("Will be created under $workspaceRootHint/")
+                    }
+                )
             }
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(selectedProfileId, sessionName.trim()) },
-                enabled = !isCreating && selectedProfileId.isNotBlank() && sessionName.isNotBlank()
+                onClick = { onConfirm(selectedProfileId, sessionName.trim(), workdir.trim()) },
+                enabled = !isCreating
+                    && selectedProfileId.isNotBlank()
+                    && sessionName.isNotBlank()
+                    && workdir.isNotBlank()
             ) {
                 Text(if (isCreating) "Creating" else "Create")
             }
