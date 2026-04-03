@@ -22,3 +22,4 @@
 - 新增 Android HTTP 轮询回退，使 WebSocket 离线时仍可刷新 agent 列表与时间线。
 - 修复 Android 首次 bootstrap 失败后的恢复路径，使 HTTP 轮询可继续自动重试当前 hub。
 - 新增 Tailscale Serve 回退接入文档，用于处理 Android 真机可 SSH 但无法直连 `100.x.x.x:8787` 的场景。
+- 重构 Android 客户端为更接近 IM 的移动端界面，改用单列会话列表、独立会话页、状态胶囊和底部输入区。

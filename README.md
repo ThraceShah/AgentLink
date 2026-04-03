@@ -85,6 +85,7 @@ npm run demo:tmux
 Android 客户端当前提供：
 
 - agent 列表
+- IM 风格的会话列表与单列会话页
 - 会话时间线
 - 快捷命令
 - 文本指令发送

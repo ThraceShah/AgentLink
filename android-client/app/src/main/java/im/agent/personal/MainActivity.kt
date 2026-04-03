@@ -1,42 +1,77 @@
 package im.agent.personal
 
-import android.content.pm.ApplicationInfo
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 private const val debugProbeTag = "AgentImDebugProbe"
 private const val debugProbeEnabledKey = "debug_probe_enabled"
@@ -45,6 +80,14 @@ private const val debugProbeCommandKey = "debug_probe_command"
 private const val debugProbeTextKey = "debug_probe_text"
 private const val debugProbeDelayMsKey = "debug_probe_delay_ms"
 private const val debugHubOriginKey = "debug_hub_origin"
+
+private val appGradient = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xFF0C1016),
+        Color(0xFF111722),
+        Color(0xFF181E28)
+    )
+)
 
 data class DebugCommandProbe(
     val agentId: String?,
@@ -62,7 +105,7 @@ class MainActivity : ComponentActivity() {
         readDebugHubOrigin(intent, isDebuggableBuild)?.let(viewModel::updateHubOrigin)
 
         setContent {
-            MaterialTheme {
+            AgentImTheme {
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) { viewModel.load() }
                 AppContent(
@@ -71,6 +114,7 @@ class MainActivity : ComponentActivity() {
                     onHubOriginChange = viewModel::updateHubOrigin,
                     onConnect = viewModel::connect,
                     onSelectAgent = viewModel::selectAgent,
+                    onBackToInbox = { viewModel.selectAgent(null) },
                     onQuickCommand = viewModel::sendQuickCommand,
                     onSendInstruction = viewModel::sendInstruction
                 )
@@ -123,81 +167,508 @@ private fun AppContent(
     onHubOriginChange: (String) -> Unit,
     onConnect: () -> Unit,
     onSelectAgent: (String) -> Unit,
+    onBackToInbox: () -> Unit,
     onQuickCommand: (String, String) -> Unit,
     onSendInstruction: (String, String) -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxSize()) {
+    val selectedAgent = state.agents.firstOrNull { it.agentId == state.selectedAgentId }
+    BackHandler(enabled = selectedAgent != null) {
+        onBackToInbox()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(appGradient)
+    ) {
+        if (selectedAgent == null) {
+            InboxScreen(
+                state = state,
+                onHubOriginChange = onHubOriginChange,
+                onConnect = onConnect,
+                onSelectAgent = onSelectAgent
+            )
+        } else {
+            ConversationScreen(
+                state = state,
+                agent = selectedAgent,
+                events = state.events.filter { it.agentId == selectedAgent.agentId },
+                resolveArtifactUrl = resolveArtifactUrl,
+                onBackToInbox = onBackToInbox,
+                onQuickCommand = onQuickCommand,
+                onSendInstruction = onSendInstruction
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InboxScreen(
+    state: MainUiState,
+    onHubOriginChange: (String) -> Unit,
+    onConnect: () -> Unit,
+    onSelectAgent: (String) -> Unit
+) {
+    var showConnectionConfig by rememberSaveable { mutableStateOf(false) }
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0),
+        topBar = {
+            TopAppBar(
+                modifier = Modifier.statusBarsPadding(),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                ),
+                title = {
+                    Column {
+                        Text("Agent Inbox", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Personal private agent control",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { showConnectionConfig = !showConnectionConfig }) {
+                        Text(if (showConnectionConfig) "Hide Hub" else "Hub")
+                    }
+                }
+            )
+        }
+    ) { paddingValues ->
         LazyColumn(
             modifier = Modifier
-                .weight(0.38f)
-                .padding(12.dp),
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                InboxHeroCard(
+                    agentCount = state.agents.size,
+                    socketState = state.socketState,
+                    connectionError = state.connectionError
+                )
+            }
+
+            if (showConnectionConfig) {
+                item {
+                    ConnectionConfigCard(
+                        hubOrigin = state.hubOrigin,
+                        isConnecting = state.isConnecting,
+                        socketState = state.socketState,
+                        onHubOriginChange = onHubOriginChange,
+                        onConnect = onConnect
+                    )
+                }
+            }
+
+            if (state.agents.isEmpty()) {
+                item {
+                    EmptyInboxCard()
+                }
+            } else {
+                items(state.agents, key = { it.agentId }) { agent ->
+                    AgentConversationCard(
+                        agent = agent,
+                        onClick = { onSelectAgent(agent.agentId) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConversationScreen(
+    state: MainUiState,
+    agent: AgentSnapshot,
+    events: List<TimelineEvent>,
+    resolveArtifactUrl: (String) -> String,
+    onBackToInbox: () -> Unit,
+    onQuickCommand: (String, String) -> Unit,
+    onSendInstruction: (String, String) -> Unit
+) {
+    Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0),
+        topBar = {
+            TopAppBar(
+                modifier = Modifier.statusBarsPadding(),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                ),
+                title = {
+                    Column {
+                        Text(agent.displayName, fontWeight = FontWeight.SemiBold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusBadge(agent.status)
+                            Text(
+                                agent.kind,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    TextButton(onClick = onBackToInbox) {
+                        Text("Back")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            ConversationComposer(
+                agent = agent,
+                onQuickCommand = onQuickCommand,
+                onSendInstruction = onSendInstruction
+            )
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                AgentHeaderCard(agent = agent, socketState = state.socketState)
+            }
+            items(events, key = { it.id }) { event ->
+                TimelineMessageCard(
+                    event = event,
+                    resolveArtifactUrl = resolveArtifactUrl
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InboxHeroCard(
+    agentCount: Int,
+    socketState: SocketConnectionState,
+    connectionError: String?
+) {
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+        ),
+        shape = RoundedCornerShape(28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "$agentCount active conversations",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Track agents, approvals and artifacts in one stream.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                SocketStateChip(socketState)
+            }
+            connectionError?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionConfigCard(
+    hubOrigin: String,
+    isConnecting: Boolean,
+    socketState: SocketConnectionState,
+    onHubOriginChange: (String) -> Unit,
+    onConnect: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f)
+        ),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Hub Connection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            OutlinedTextField(
+                value = hubOrigin,
+                onValueChange = onHubOriginChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Hub Origin") },
+                singleLine = true,
+                supportingText = {
+                    Text("Supports local IP, Tailscale IP and Tailscale Serve HTTPS origin.")
+                }
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    when (socketState) {
+                        SocketConnectionState.CONNECTED -> "Realtime socket connected"
+                        SocketConnectionState.CONNECTING -> "Connecting and polling"
+                        SocketConnectionState.DISCONNECTED -> "Polling fallback active"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Button(onClick = onConnect, enabled = !isConnecting) {
+                    Text(if (isConnecting) "Connecting" else "Reconnect")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyInboxCard() {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+        ),
+        shape = RoundedCornerShape(26.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(state.agents) { agent ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelectAgent(agent.agentId) }
+            Text("No agents online", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Start a demo agent, tmux bridge or command bridge, then reconnect this inbox.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun AgentConversationCard(
+    agent: AgentSnapshot,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+        ),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AgentAvatar(agent = agent)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(agent.displayName, style = MaterialTheme.typography.titleMedium)
-                        Text("${agent.kind} · ${agent.status}")
-                        Text(agent.lastMessage ?: "No messages yet")
+                    Text(
+                        agent.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        formatTimestamp(agent.lastSeenAt),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    StatusBadge(agent.status)
+                    Text(
+                        agent.kind,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    agent.lastMessage ?: "Waiting for the next event.",
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AgentHeaderCard(agent: AgentSnapshot, socketState: SocketConnectionState) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+        ),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AgentAvatar(agent = agent)
+                    Column {
+                        Text(agent.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            agent.sessionHint ?: "No session hint",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                SocketStateChip(socketState)
+            }
+
+            if (agent.capabilities.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    agent.capabilities.forEach { capability ->
+                        CapabilityPill(label = capability)
                     }
                 }
             }
         }
+    }
+}
 
-        val selectedAgent = state.agents.firstOrNull { it.agentId == state.selectedAgentId }
-        val events = state.events.filter { it.agentId == state.selectedAgentId }
+@Composable
+private fun TimelineMessageCard(
+    event: TimelineEvent,
+    resolveArtifactUrl: (String) -> String
+) {
+    val bubbleColors = messageBubbleColors(event)
+    val alignment = when (event.eventType) {
+        "user_command" -> Arrangement.End
+        else -> Arrangement.Start
+    }
 
-        Column(
-            modifier = Modifier
-                .weight(0.62f)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = state.hubOrigin,
-                onValueChange = onHubOriginChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Hub Origin") },
-                singleLine = true
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = alignment
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(0.9f),
+            colors = CardDefaults.cardColors(containerColor = bubbleColors.first),
+            shape = RoundedCornerShape(
+                topStart = 22.dp,
+                topEnd = 22.dp,
+                bottomStart = if (event.eventType == "user_command") 22.dp else 8.dp,
+                bottomEnd = if (event.eventType == "user_command") 8.dp else 22.dp
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onConnect, enabled = !state.isConnecting) {
-                    Text(if (state.isConnecting) "Connecting" else "Connect")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        timelineTitle(event),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = bubbleColors.second,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        formatTimestamp(event.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = bubbleColors.second.copy(alpha = 0.7f)
+                    )
                 }
-                SocketStateChip(state.socketState)
-                state.connectionError?.let { Text(it) }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(selectedAgent?.displayName ?: "Select an agent", style = MaterialTheme.typography.headlineSmall)
-            selectedAgent?.let { agent ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "status") }) { Text("Status") }
-                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "approve") }) { Text("Approve") }
-                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "retry") }) { Text("Retry") }
-                    OutlinedButton(onClick = { onQuickCommand(agent.agentId, "stop") }) { Text("Stop") }
+
+                event.body?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, color = bubbleColors.second)
                 }
-                InstructionComposer(agent.agentId, onSendInstruction)
-            }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(events) { event ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(event.title ?: event.eventType, style = MaterialTheme.typography.titleMedium)
-                            event.body?.let { Text(it) }
-                            event.artifact?.let { artifact ->
-                                if (artifact.kind == "image") {
-                                    AsyncImage(
-                                        model = resolveArtifactUrl(artifact.url),
-                                        contentDescription = artifact.caption
-                                    )
-                                } else {
-                                    Text("Artifact: ${artifact.fileName}")
-                                }
-                            }
+
+                event.artifact?.let { artifact ->
+                    if (artifact.kind == "image") {
+                        AsyncImage(
+                            model = resolveArtifactUrl(artifact.url),
+                            contentDescription = artifact.caption,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+                                    shape = RoundedCornerShape(18.dp)
+                                ),
+                            contentScale = ContentScale.FillWidth
+                        )
+                    }
+                    artifact.caption?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = bubbleColors.second.copy(alpha = 0.8f)
+                        )
+                    }
+                    if (artifact.kind != "image") {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text(
+                                "Artifact · ${artifact.fileName}",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -206,36 +677,201 @@ private fun AppContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SocketStateChip(socketState: SocketConnectionState) {
-    val label = when (socketState) {
-        SocketConnectionState.DISCONNECTED -> "Socket: offline, polling"
-        SocketConnectionState.CONNECTING -> "Socket: connecting, polling"
-        SocketConnectionState.CONNECTED -> "Socket: live"
-    }
-    Text(label, style = MaterialTheme.typography.bodyMedium)
-}
-
-@Composable
-private fun InstructionComposer(
-    agentId: String,
+private fun ConversationComposer(
+    agent: AgentSnapshot,
+    onQuickCommand: (String, String) -> Unit,
     onSendInstruction: (String, String) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.weight(1f),
-            label = { Text("Instruction") }
-        )
-        Button(onClick = {
-            onSendInstruction(agentId, text)
-            text = ""
-        }) {
-            Text("Send")
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        tonalElevation = 6.dp,
+        shadowElevation = 12.dp,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                quickCommandLabels(agent).forEach { command ->
+                    AssistChip(
+                        onClick = { onQuickCommand(agent.agentId, command) },
+                        label = { Text(commandLabel(command)) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                            labelColor = MaterialTheme.colorScheme.onSurface
+                        )
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.weight(1f),
+                    label = { Text("Instruction") },
+                    placeholder = { Text("Ask the agent to continue, approve, summarize...") },
+                    maxLines = 4
+                )
+                Button(
+                    onClick = {
+                        if (text.isNotBlank()) {
+                            onSendInstruction(agent.agentId, text.trim())
+                            text = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text("Send")
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun AgentAvatar(agent: AgentSnapshot) {
+    val accent = when (agent.status.lowercase()) {
+        "busy", "running" -> Color(0xFFFFB84D)
+        "waiting_input", "need_approval", "need_user_input" -> Color(0xFFFF857E)
+        "completed" -> Color(0xFF8BD3C7)
+        "failed", "offline" -> Color(0xFFE57373)
+        else -> Color(0xFF9DB8FF)
+    }
+    Box(
+        modifier = Modifier
+            .size(50.dp)
+            .clip(CircleShape)
+            .background(accent.copy(alpha = 0.18f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = agent.displayName.take(2).uppercase(),
+            color = accent,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun StatusBadge(status: String) {
+    val (container, content) = statusColors(status)
+    Surface(
+        color = container,
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            text = status.replace('_', ' '),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = content
+        )
+    }
+}
+
+@Composable
+private fun CapabilityPill(label: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.82f),
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+    }
+}
+
+@Composable
+private fun SocketStateChip(socketState: SocketConnectionState) {
+    val (container, content, label) = when (socketState) {
+        SocketConnectionState.DISCONNECTED -> Triple(Color(0xFF4F2C2A), Color(0xFFFFC6C3), "Polling")
+        SocketConnectionState.CONNECTING -> Triple(Color(0xFF51411A), Color(0xFFFFE2A8), "Connecting")
+        SocketConnectionState.CONNECTED -> Triple(Color(0xFF183A35), Color(0xFFA7F1E4), "Live")
+    }
+    Surface(color = container, shape = RoundedCornerShape(999.dp)) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = content
+        )
+    }
+}
+
+private fun quickCommandLabels(agent: AgentSnapshot): List<String> {
+    val preferred = if (agent.quickCommands.isEmpty()) {
+        listOf("status", "approve", "retry", "stop")
+    } else {
+        agent.quickCommands
+    }
+    return preferred.distinct().take(5)
+}
+
+private fun commandLabel(command: String): String {
+    return command.replaceFirstChar { it.uppercase() }.replace('_', ' ')
+}
+
+private fun timelineTitle(event: TimelineEvent): String {
+    return event.title ?: when (event.eventType) {
+        "user_command" -> "You"
+        "task_running" -> "Running"
+        "task_completed" -> "Completed"
+        "task_failed" -> "Failed"
+        "need_approval" -> "Approval needed"
+        "need_user_input" -> "Input needed"
+        "artifact_generated" -> "Artifact"
+        "image_available" -> "Preview"
+        "agent_started" -> "Agent started"
+        "agent_stopped" -> "Agent stopped"
+        else -> event.eventType.replace('_', ' ')
+    }
+}
+
+@Composable
+private fun messageBubbleColors(event: TimelineEvent): Pair<Color, Color> {
+    return when (event.eventType) {
+        "user_command" -> Pair(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        "task_failed" -> Pair(Color(0xFF4A1E23), Color(0xFFFFD9DD))
+        "task_completed" -> Pair(Color(0xFF173A33), Color(0xFFB8F4E9))
+        "need_approval", "need_user_input" -> Pair(Color(0xFF52401E), Color(0xFFFFE8B8))
+        else -> Pair(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun statusColors(status: String): Pair<Color, Color> {
+    return when (status.lowercase()) {
+        "busy", "running" -> Pair(Color(0xFF5A4313), Color(0xFFFFE0A8))
+        "waiting_input", "need_approval", "need_user_input" -> Pair(Color(0xFF5A2D1F), Color(0xFFFFD7C8))
+        "completed" -> Pair(Color(0xFF1F463E), Color(0xFFB7F4E8))
+        "failed", "offline" -> Pair(Color(0xFF54252A), Color(0xFFFFCCD1))
+        else -> Pair(Color(0xFF23344A), Color(0xFFCFE3FF))
+    }
+}
+
+private fun formatTimestamp(raw: String): String {
+    return runCatching {
+        val instant = Instant.parse(raw)
+        DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(instant)
+    }.getOrElse { raw }
 }
 
 private fun readDebugCommandProbe(intent: Intent?, isDebuggableBuild: Boolean): DebugCommandProbe? {
@@ -258,13 +894,9 @@ private fun readDebugCommandProbe(intent: Intent?, isDebuggableBuild: Boolean): 
 
     Log.i(
         debugProbeTag,
-        "Loaded debug probe command ${probe.command} for agent ${probe.agentId ?: "<first>"}"
+        "Configured debug probe: agentId=${probe.agentId ?: "<auto>"} command=${probe.command}"
     )
     return probe
-}
-
-private fun MainActivity.isDebuggableBuild(): Boolean {
-    return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 }
 
 private fun readDebugHubOrigin(intent: Intent?, isDebuggableBuild: Boolean): String? {
@@ -272,11 +904,15 @@ private fun readDebugHubOrigin(intent: Intent?, isDebuggableBuild: Boolean): Str
         return null
     }
 
-    val raw = intent.getStringExtra(debugHubOriginKey)?.trim().orEmpty()
-    if (raw.isEmpty()) {
+    val origin = intent.getStringExtra(debugHubOriginKey)?.trim().orEmpty()
+    if (origin.isEmpty()) {
         return null
     }
 
-    Log.i(debugProbeTag, "Applying debug hub origin override: $raw")
-    return raw
+    Log.i(debugProbeTag, "Applying debug hub origin override: $origin")
+    return origin
+}
+
+private fun ComponentActivity.isDebuggableBuild(): Boolean {
+    return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 }

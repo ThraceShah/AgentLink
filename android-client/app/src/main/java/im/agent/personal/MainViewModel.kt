@@ -94,7 +94,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun selectAgent(agentId: String) {
+    fun selectAgent(agentId: String?) {
         _uiState.value = _uiState.value.copy(selectedAgentId = agentId)
     }
 
