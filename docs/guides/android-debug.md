@@ -59,6 +59,33 @@ MVP 默认仅在应用前台维持 WebSocket。
 - 持久通知
 - 重连策略
 
+## 本机模拟器运行建议
+
+如果当前主机已经有登录中的 GNOME 桌面会话，而你又是通过 SSH 进入主机，优先使用项目脚本启动 emulator：
+
+```bash
+scripts/android/start-emulator-desktop.sh
+```
+
+这条路线会：
+
+- 复用当前用户桌面会话中的显示环境
+- 启用 KVM 加速
+- 使用 `qt-hide-window` 避免在 SSH 中依赖直接显示窗口
+- 比纯 `-no-window + -accel off` 更适合继续做联调
+
+脚本支持透传附加参数，例如：
+
+```bash
+scripts/android/start-emulator-desktop.sh project_iris_api35 -wipe-data
+```
+
+若需要让 emulator 内的 `127.0.0.1:8787` 指向宿主机 hub，可继续执行：
+
+```bash
+adb reverse tcp:8787 tcp:8787
+```
+
 ## 当前验证状态
 
 - 已完成：
@@ -75,5 +102,6 @@ MVP 默认仅在应用前台维持 WebSocket。
   - 已在无界面 Android Emulator 上完成设备启动与 ADB 连接验证
   - 已补充模拟器默认 hub 地址为 `10.0.2.2:8787`
   - 已补充 emulator 环境下的 `127.0.0.1` 回退连接逻辑，便于配合 `adb reverse` 联调
+  - 已新增桌面会话支撑的 emulator 启动脚本，便于在 SSH 会话中复用本机 GNOME 图形环境和 KVM 加速
 
 因此 Android 侧已进入可继续进行 APK 安装与联调的状态，但完整 UI 验收仍待继续执行。
