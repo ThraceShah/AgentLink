@@ -199,8 +199,27 @@ export function serializeMessage(message: OutgoingMessage | IncomingMessage): st
   return JSON.stringify(message);
 }
 
-export function summarizeEvent(event: TimelineEvent): string {
-  return event.title ?? event.body ?? event.eventType;
+export function summarizeEvent(event: TimelineEvent): string | undefined {
+  const body = event.body?.trim();
+  if (body) {
+    return body;
+  }
+
+  const caption = event.artifact?.caption?.trim();
+  if (caption) {
+    return caption;
+  }
+
+  const title = event.title?.trim();
+  if (event.eventType === "user_command" && !body) {
+    return undefined;
+  }
+
+  if (title) {
+    return title;
+  }
+
+  return undefined;
 }
 
 export function deriveStatusFromEvent(eventType: EventType): AgentStatus | undefined {

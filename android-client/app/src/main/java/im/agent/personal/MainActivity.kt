@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AssistChip
@@ -341,23 +342,33 @@ private fun ConversationScreen(
             )
         }
     ) { paddingValues ->
+        val visibleEvents = remember(events) { timelineEventsForDisplay(events) }
+        val listState = rememberLazyListState()
+
+        LaunchedEffect(agent.agentId, visibleEvents.size) {
+            if (visibleEvents.isNotEmpty()) {
+                listState.scrollToItem(visibleEvents.lastIndex)
+            }
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
+            state = listState,
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
                 AgentHeaderCard(agent = agent, socketState = state.socketState)
             }
-            items(events, key = { it.id }) { event ->
+            items(visibleEvents, key = { it.id }) { event ->
                 TimelineMessageCard(
                     event = event,
                     resolveArtifactUrl = resolveArtifactUrl
                 )
             }
-            if (events.isEmpty()) {
+            if (visibleEvents.isEmpty()) {
                 item {
                     EmptyTimelineCard()
                 }
@@ -688,15 +699,12 @@ private fun TimelineMessageCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        EventTypePill(event = event)
-                        Text(
-                            timelineTitle(event),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = bubbleColors.second,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                    Text(
+                        timelineSpeaker(event),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = bubbleColors.second.copy(alpha = 0.76f),
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Text(
                         formatTimestamp(event.timestamp),
                         style = MaterialTheme.typography.bodySmall,
@@ -704,7 +712,7 @@ private fun TimelineMessageCard(
                     )
                 }
 
-                event.body?.takeIf { it.isNotBlank() }?.let {
+                timelineBody(event)?.let {
                     Text(it, color = bubbleColors.second)
                 }
 
@@ -934,28 +942,6 @@ private fun SummaryPill(label: String, value: String, accent: Color) {
 }
 
 @Composable
-private fun EventTypePill(event: TimelineEvent) {
-    val (container, content) = when (event.eventType) {
-        "user_command" -> Pair(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f), MaterialTheme.colorScheme.onPrimaryContainer)
-        "task_completed" -> Pair(Color(0xFFB7F4E8).copy(alpha = 0.18f), Color(0xFFB7F4E8))
-        "task_failed" -> Pair(Color(0xFFFFCCD1).copy(alpha = 0.18f), Color(0xFFFFCCD1))
-        "need_approval", "need_user_input" -> Pair(Color(0xFFFFE8B8).copy(alpha = 0.18f), Color(0xFFFFE8B8))
-        else -> Pair(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    Surface(
-        color = container,
-        shape = RoundedCornerShape(999.dp)
-    ) {
-        Text(
-            event.eventType.replace('_', ' '),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = content
-        )
-    }
-}
-
-@Composable
 private fun EmptyTimelineCard() {
     Card(
         colors = CardDefaults.cardColors(
@@ -1018,6 +1004,34 @@ private fun timelineTitle(event: TimelineEvent): String {
         "agent_started" -> "Agent started"
         "agent_stopped" -> "Agent stopped"
         else -> event.eventType.replace('_', ' ')
+    }
+}
+
+private fun timelineSpeaker(event: TimelineEvent): String {
+    return when (event.eventType) {
+        "user_command" -> "You"
+        else -> "Agent"
+    }
+}
+
+private fun timelineBody(event: TimelineEvent): String? {
+    return event.body?.takeIf { it.isNotBlank() }
+        ?: event.artifact?.caption?.takeIf { it.isNotBlank() }
+        ?: when (event.eventType) {
+            "task_completed" -> "Completed."
+            "task_failed" -> "Failed."
+            "need_approval" -> "Waiting for approval."
+            "need_user_input" -> "Waiting for input."
+            "agent_started" -> "Online."
+            "agent_stopped" -> "Offline."
+            else -> null
+        }
+}
+
+private fun timelineEventsForDisplay(events: List<TimelineEvent>): List<TimelineEvent> {
+    return events.filterNot { event ->
+        (event.eventType == "user_command" && event.body.isNullOrBlank())
+            || (timelineBody(event) == null && event.artifact == null)
     }
 }
 

@@ -66,11 +66,12 @@ export class HubStore {
     const snapshot = this.agents.get(event.agentId);
     if (snapshot) {
       const derived = deriveStatusFromEvent(event.eventType);
+      const summary = summarizeEvent(event);
       this.agents.set(event.agentId, {
         ...snapshot,
         status: event.status ?? derived ?? snapshot.status,
         lastSeenAt: event.timestamp,
-        lastMessage: summarizeEvent(event)
+        lastMessage: summary ?? snapshot.lastMessage
       });
     }
 

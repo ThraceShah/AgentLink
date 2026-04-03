@@ -109,7 +109,7 @@ export class AgentRuntime {
     });
   }
 
-  async sendText(title: string, body: string): Promise<void> {
+  async sendText(title: string | undefined, body: string): Promise<void> {
     await this.emitEvent({
       eventType: "text_output",
       title,

@@ -13,7 +13,8 @@
 
 1. `npm install`
 2. `npm run dev:hub`
-3. `npm run dev:demo-agent`
+3. `export OPENAI_API_KEY=your_key`（若要验证真实 AI 回复）
+4. `npm run dev:demo-agent`
 
 ## 运行测试
 

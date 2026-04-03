@@ -3,7 +3,7 @@ import WebSocket from "ws";
 const socket = new WebSocket("ws://127.0.0.1:8787/ws");
 const targetAgentId = process.env.DEMO_AGENT_ID ?? "demo-agent";
 let commandedFromBootstrap = false;
-let approved = false;
+let stopped = false;
 
 socket.on("open", () => {
   socket.send(JSON.stringify({
@@ -32,54 +32,27 @@ socket.on("message", (data) => {
           type: "status"
         }
       }));
-    }
-
-    const hasApproval = message.events.some(
-      (event) => event.agentId === targetAgentId && event.eventType === "need_approval"
-    );
-    if (hasApproval && !approved) {
-      approved = true;
       socket.send(JSON.stringify({
         type: "command",
         agentId: targetAgentId,
         command: {
           id: `cmd_${Date.now()}`,
-          type: "approve"
-        }
-      }));
-      socket.send(JSON.stringify({
-        type: "command",
-        agentId: targetAgentId,
-        command: {
-          id: `cmd_${Date.now()}`,
-          type: "custom",
-          text: "image_demo"
-        }
-      }));
-      socket.send(JSON.stringify({
-        type: "command",
-        agentId: targetAgentId,
-        command: {
-          id: `cmd_${Date.now()}`,
-          type: "stop"
+          type: "send_text",
+          text: process.env.DEMO_PROMPT ?? "Give me a concise status update for the current coding task."
         }
       }));
     }
   }
 
-  if (message.type === "timeline_event" && message.event.eventType === "need_approval" && !approved) {
-    approved = true;
+  if (message.type === "timeline_event" && message.event.agentId === targetAgentId && !stopped) {
+    const done = ["text_output", "task_completed", "task_failed", "need_user_input"].includes(message.event.eventType);
+    if (!done) {
+      return;
+    }
+    stopped = true;
     socket.send(JSON.stringify({
       type: "command",
-      agentId: message.event.agentId,
-      command: {
-        id: `cmd_${Date.now()}`,
-        type: "approve"
-      }
-    }));
-    socket.send(JSON.stringify({
-      type: "command",
-      agentId: message.event.agentId,
+      agentId: targetAgentId,
       command: {
         id: `cmd_${Date.now()}`,
         type: "custom",
@@ -88,7 +61,7 @@ socket.on("message", (data) => {
     }));
     socket.send(JSON.stringify({
       type: "command",
-      agentId: message.event.agentId,
+      agentId: targetAgentId,
       command: {
         id: `cmd_${Date.now()}`,
         type: "stop"

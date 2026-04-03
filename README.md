@@ -8,7 +8,7 @@
 
 - 轻量 hub：负责 agent 注册、在线状态、会话时间线和命令转发
 - Node.js agent bridge：负责把示例 agent 或 shell command task 接入 hub
-- 示例 agent：用于演示 agent 上线、状态消息、命令回执、产物回传、下线
+- 示例 agent：默认作为 OpenAI bridge 运行，用于演示 agent 上线、真实对话回执、产物回传、下线
 - Android 原生客户端骨架：Jetpack Compose + OkHttp WebSocket
 - tmux bridge：把 tmux session / pane 接入为可控制 agent
 - 协议与架构文档
@@ -68,6 +68,13 @@ npm run dev:hub
 npm run dev:demo-agent
 ```
 
+若要让示例 agent 返回真实模型结果，还需要在启动前设置：
+
+```bash
+export OPENAI_API_KEY=your_key
+export OPENAI_MODEL=gpt-4.1-mini
+```
+
 ### 4. 运行最小 demo
 
 ```bash
@@ -119,6 +126,10 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 
 - 已验证：hub、协议、示例 agent、shell command bridge、tmux bridge、基础测试、demo 脚本
 - 未完整验证：Android 原生客户端编译与真机连接
+
+说明：
+
+- 若未配置 `OPENAI_API_KEY`，示例 agent 会明确提示缺失条件，不再伪造回声回复
 
 若要完成 Android 侧自测，需要补充：
 

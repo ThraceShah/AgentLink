@@ -6,6 +6,21 @@
 
 用于演示协议闭环与 UI 形态。
 
+当前默认作为 OpenAI bridge 使用。
+
+关键环境变量：
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
+- `OPENAI_SYSTEM_PROMPT`
+
+行为说明：
+
+- 当配置了 `OPENAI_API_KEY` 时，`send_text` 会转发给 OpenAI Responses API
+- 当未配置 `OPENAI_API_KEY` 时，agent 会在时间线中明确提示缺失条件
+- `retry` 会重放上一条用户输入
+- `custom=image_demo` 仍可用于生成演示图片 artifact
+
 ### `command-agent`
 
 用于接入 shell command task。
