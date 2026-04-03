@@ -84,7 +84,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     connectionError = error.message ?: "Failed to connect to hub",
-                    socketState = SocketConnectionState.DISCONNECTED
+                    socketState = SocketConnectionState.DISCONNECTED,
+                    hubOrigin = _uiState.value.hubOrigin
                 )
                 startPolling()
             }
@@ -125,8 +126,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     baseHttpUrl = candidate.httpUrl,
                     baseWsUrl = candidate.wsUrl
                 )
-                val bootstrap = nextRepository.fetchBootstrap()
                 repository = nextRepository
+                val bootstrap = nextRepository.fetchBootstrap()
                 return candidate to bootstrap
             } catch (error: Throwable) {
                 lastError = error
@@ -153,6 +154,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }.onSuccess { bootstrap ->
                     if (bootstrap != null) {
                         mergeBootstrap(bootstrap)
+                        _uiState.value = _uiState.value.copy(connectionError = null)
                     }
                 }
 

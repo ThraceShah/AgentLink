@@ -20,3 +20,4 @@
 - 新增 `POST /api/commands` 与 Android HTTP 命令回退通道，解决 emulator 联调中 Android WebSocket 发送命令不稳定的问题。
 - 新增 Android debug hub 地址覆盖能力，支持真机通过 `adb reverse` 使用 `127.0.0.1` 连接本机 hub。
 - 新增 Android HTTP 轮询回退，使 WebSocket 离线时仍可刷新 agent 列表与时间线。
+- 修复 Android 首次 bootstrap 失败后的恢复路径，使 HTTP 轮询可继续自动重试当前 hub。

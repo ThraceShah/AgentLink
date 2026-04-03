@@ -97,6 +97,7 @@ adb reverse tcp:8787 tcp:8787
 - 支持通过 `adb am start` 注入一次性调试命令探针，绕过 headless 模拟点击不稳定的问题
 - Android 命令发送改为走 `POST /api/commands`，避免 WebSocket 命令投递在 emulator 联调中不稳定
 - 当 WebSocket 未建立时，客户端会自动回退到 HTTP 轮询刷新
+- 如果首次连接失败，客户端仍会保留当前 hub 配置，并继续通过 HTTP 轮询自动重试
 
 推荐联调步骤：
 
