@@ -170,6 +170,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshFromHub()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -208,7 +213,10 @@ class MainActivity : ComponentActivity() {
 
     private fun handleLaunchIntent(intent: Intent?, isDebuggableBuild: Boolean) {
         readDebugHubOrigin(intent, isDebuggableBuild)?.let(viewModel::updateHubOrigin)
-        readOpenAgentId(intent)?.let(viewModel::selectAgent)
+        readOpenAgentId(intent)?.let {
+            viewModel.selectAgent(it)
+            viewModel.refreshFromHub()
+        }
     }
 }
 

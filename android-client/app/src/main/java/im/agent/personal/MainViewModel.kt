@@ -44,6 +44,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(hubOrigin = origin)
     }
 
+    fun refreshFromHub() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                repository?.fetchBootstrap()
+            }.onSuccess { bootstrap ->
+                if (bootstrap != null) {
+                    mergeBootstrap(bootstrap)
+                    _uiState.value = _uiState.value.copy(connectionError = null)
+                }
+            }.onFailure { error ->
+                _uiState.value = _uiState.value.copy(
+                    connectionError = error.message ?: "Failed to refresh from hub"
+                )
+            }
+        }
+    }
+
     fun connect() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(
@@ -103,6 +120,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 )
+                refreshFromHub()
                 startPolling()
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
