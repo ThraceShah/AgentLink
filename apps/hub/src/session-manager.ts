@@ -23,11 +23,12 @@ export type CreateSessionInput = {
 
 export class SessionManager {
   private readonly runningBridges = new Map<string, number>();
+  private readonly runningOpencodeProxies = new Map<string, { pid: number; port: number }>();
 
   async listProfiles(): Promise<AgentProfile[]> {
     const profiles: AgentProfile[] = [];
 
-    if (await this.hasCommand("opencode")) {
+    if (await this.hasCommand("opencode") && await this.hasCommand("qwen")) {
       profiles.push({
         id: "opencode",
         label: "opencode",
@@ -83,7 +84,7 @@ export class SessionManager {
     const workingDirectory = resolveWorkingDirectory(input.workdir);
     await mkdir(workingDirectory, { recursive: true });
     await this.ensureTmuxSession(sessionName, profile, workingDirectory);
-    await this.startBridge(sessionName, profile, input.hubUrl);
+    await this.startBridge(sessionName, profile, input.hubUrl, workingDirectory);
 
     return { sessionName, profile };
   }
@@ -141,10 +142,19 @@ export class SessionManager {
     }
   }
 
-  private async startBridge(sessionName: string, profile: AgentProfile, hubUrl: string): Promise<void> {
+  private async startBridge(
+    sessionName: string,
+    profile: AgentProfile,
+    hubUrl: string,
+    workingDirectory: string
+  ): Promise<void> {
     if (this.runningBridges.has(sessionName)) {
       return;
     }
+
+    const proxyPort = profile.id === "opencode"
+      ? await this.ensureOpencodeProxy(sessionName, workingDirectory)
+      : undefined;
 
     const child = spawn("node_modules/.bin/tsx", ["agents/tmux-agent/src/main.ts"], {
       cwd: process.cwd(),
@@ -155,8 +165,11 @@ export class SessionManager {
         TMUX_SESSION: sessionName,
         TMUX_BRIDGE_PROFILE: profile.bridgeProfile,
         AGENT_ID: sessionName,
-        AGENT_LABEL: profile.label,
-        AGENT_KIND: profile.id
+        AGENT_DISPLAY_NAME: sessionName,
+        AGENT_KIND: profile.id,
+        IRIS_USER_HOME: process.env.HOME ?? homedir(),
+        OPENCODE_PROXY_PORT: proxyPort?.toString(),
+        OPENCODE_PROXY_MODEL_ID: process.env.OPENCODE_PROXY_MODEL_ID ?? "qwen-cli"
       },
       stdio: "ignore",
       detached: true
@@ -183,6 +196,16 @@ export class SessionManager {
       } catch {
         // Ignore missing process.
       }
+    }
+
+    const proxy = this.runningOpencodeProxies.get(sessionName);
+    if (proxy) {
+      try {
+        process.kill(proxy.pid, "SIGTERM");
+      } catch {
+        // Ignore missing process.
+      }
+      this.runningOpencodeProxies.delete(sessionName);
     }
   }
 
@@ -212,6 +235,32 @@ export class SessionManager {
       return [];
     }
   }
+
+  private async ensureOpencodeProxy(sessionName: string, workingDirectory: string): Promise<number> {
+    const existing = this.runningOpencodeProxies.get(sessionName);
+    if (existing) {
+      return existing.port;
+    }
+
+    const port = await allocateTcpPort();
+    const child = spawn("node_modules/.bin/tsx", ["apps/opencode-proxy/src/server.ts"], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATH: buildCommandPath(process.env.PATH),
+        OPENCODE_PROXY_HOST: "127.0.0.1",
+        OPENCODE_PROXY_PORT: port.toString(),
+        OPENCODE_PROXY_WORKDIR: workingDirectory,
+        OPENCODE_PROXY_MODEL_ID: process.env.OPENCODE_PROXY_MODEL_ID ?? "qwen-cli"
+      },
+      stdio: "ignore",
+      detached: true
+    });
+
+    child.unref();
+    this.runningOpencodeProxies.set(sessionName, { pid: child.pid ?? 0, port });
+    return port;
+  }
 }
 
 function defaultSessionCommand(profile: AgentProfile): string {
@@ -219,6 +268,30 @@ function defaultSessionCommand(profile: AgentProfile): string {
     return "sh";
   }
   return "sh";
+}
+
+async function allocateTcpPort(): Promise<number> {
+  const net = await import("node:net");
+  return await new Promise<number>((resolve, reject) => {
+    const server = net.createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        server.close();
+        reject(new Error("failed_to_allocate_proxy_port"));
+        return;
+      }
+      const { port } = address;
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
 }
 
 function sanitizeSessionName(input: string): string {

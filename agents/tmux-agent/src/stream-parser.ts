@@ -96,6 +96,16 @@ function parseCodexJson(content: string): StreamSnapshot {
 function parseOpenCodeStream(content: string): StreamSnapshot {
   let finalText: string | undefined;
   let partialText: string | undefined;
+  const wholeDocument = parseWholeJson(content);
+  if (wholeDocument) {
+    const candidate = extractOpenCodeText(wholeDocument);
+    if (candidate) {
+      return {
+        partialText: candidate,
+        finalText: candidate
+      };
+    }
+  }
 
   for (const item of parseJsonLines(content)) {
     const candidate = extractOpenCodeText(item);
@@ -117,6 +127,15 @@ function parseOpenCodeStream(content: string): StreamSnapshot {
     partialText,
     finalText
   };
+}
+
+function parseWholeJson(content: string): Record<string, any> | undefined {
+  try {
+    const parsed = JSON.parse(content) as Record<string, any>;
+    return parsed && typeof parsed === "object" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseJsonLines(content: string): Array<Record<string, any>> {

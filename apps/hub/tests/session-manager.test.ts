@@ -34,4 +34,26 @@ describe("SessionManager", () => {
       }
     ]);
   });
+
+  it("hides opencode when qwen backend is unavailable", async () => {
+    const manager = new SessionManager();
+    const hasCommand = vi.spyOn(manager as any, "hasCommand");
+
+    hasCommand.mockImplementation(async (command: string) => {
+      return ["opencode", "codex", "copilot"].includes(command);
+    });
+
+    await expect(manager.listProfiles()).resolves.toEqual([
+      {
+        id: "codex",
+        label: "codex",
+        bridgeProfile: "codex"
+      },
+      {
+        id: "copilot",
+        label: "copilot",
+        bridgeProfile: "copilot"
+      }
+    ]);
+  });
 });

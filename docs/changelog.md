@@ -61,3 +61,5 @@
 - 新增 `opencode` provider 接入：Hub 现可检测本机 OpenCode CLI，tmux bridge 已支持 `opencode` 非交互 prompt 模式。
 - 调整 Android 新建会话体验：profile 顺序固定为 `opencode`、`qwen`、`codex`、`copilot`，且默认优先选中 `opencode`。
 - 精简 Android 首页视觉：移除会话卡片左滑删除的红色底板，并把左上角固定文案替换为当前连接主机的用户名。
+- 打通 `opencode` 最小闭环：新增会话级 `OpenCode local proxy`，默认复用本机 `qwen` CLI，并由 bridge 自动生成旧版 OpenCode 配置与 `LOCAL_ENDPOINT` 环境。
+- 修正 `opencode` bridge 的旧版兼容问题：不再错误读取新版配置路径，不再依赖无效的 `--model` 假设，改为使用隔离 HOME 和 `.opencode.json` 执行。

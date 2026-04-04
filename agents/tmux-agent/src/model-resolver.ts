@@ -35,14 +35,15 @@ export async function resolveProviderModel(profile: BridgeProfile): Promise<stri
 }
 
 async function resolveOpenCodeModel(): Promise<string | undefined> {
-  const envModel = process.env.OPENCODE_MODEL?.trim();
+  const envModel = process.env.OPENCODE_PROXY_MODEL_ID?.trim();
   if (envModel) {
-    return envModel;
+    return `local.${envModel}`;
   }
 
   const candidatePaths = [
-    path.join(homedir(), ".config", "opencode", "config.json"),
-    path.join(homedir(), ".opencode", "config.json")
+    path.join(process.cwd(), ".opencode.json"),
+    path.join(homedir(), ".opencode.json"),
+    path.join(homedir(), ".config", "opencode", ".opencode.json")
   ];
 
   for (const configPath of candidatePaths) {
@@ -153,6 +154,11 @@ export function parseQwenModel(content: string): string | undefined {
 export function parseOpenCodeModel(content: string): string | undefined {
   try {
     const parsed = JSON.parse(content) as {
+      agents?: {
+        coder?: {
+          model?: string;
+        };
+      };
       model?: string;
       agent?: {
         model?: string;
@@ -161,7 +167,9 @@ export function parseOpenCodeModel(content: string): string | undefined {
         model?: string;
       };
     };
+    const legacyModel = parsed.agents?.coder?.model?.trim();
     return parsed.model?.trim()
+      || legacyModel
       || parsed.agent?.model?.trim()
       || parsed.provider?.model?.trim()
       || undefined;

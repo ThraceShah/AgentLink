@@ -11,11 +11,12 @@
 - 示例 agent：默认作为 OpenAI bridge 运行，用于演示 agent 上线、真实对话回执、产物回传、下线
 - Android 原生客户端骨架：Jetpack Compose + OkHttp WebSocket
 - tmux bridge：把 tmux session / pane 接入为可控制 agent
-- tmux bridge 现已支持 `opencode` profile
+- tmux bridge 现已支持 `opencode` profile，并内置会话级 local proxy
 - tmux bridge 现已支持 `codex` profile，可直接作为本机 Codex bridge 使用
 - tmux bridge 现已支持 `copilot` 与 `qwen` profile
 - `codex` profile 默认走稳定的 `codex exec` 模式，已完成真实端到端验证
 - `copilot` 与 `qwen` profile 已完成本机端到端验证
+- `opencode` profile 已改为默认复用本机 `qwen` CLI，无需额外公网 API key
 - Android 发送消息时支持本地乐观入列，用户消息不再等 agent 回复后才出现
 - `qwen` 与 `copilot` 已接入流式 JSON bridge；`codex` 已统一到相同 JSON bridge 结构，当前仍以最终消息回传为主
 - Android 首页会按最后一次真实对话时间排序，不再被 heartbeat 保活时间污染
@@ -102,6 +103,12 @@ npm run demo:tmux
 npm run dev:codex-bridge
 ```
 
+### 7. 单独运行 OpenCode local proxy
+
+```bash
+npm run dev:opencode-proxy
+```
+
 ## Android 客户端说明
 
 Android 客户端当前提供：
@@ -139,6 +146,13 @@ Android 客户端当前提供：
 4. 拉起对应 bridge
 5. 让新会话自动出现在联系人列表中
 
+当前 `opencode` profile 的实现方式不是直接依赖公网 provider，而是：
+
+1. Hub 为该会话分配独立本地 proxy 端口
+2. tmux bridge 为本次请求生成隔离的旧版 OpenCode 配置
+3. OpenCode 通过 `LOCAL_ENDPOINT` 访问本机 proxy
+4. proxy 默认调用 `qwen` CLI 并把结果回传给 OpenCode
+
 Hub 默认使用 `~/code` 作为工作区根目录。若要修改，可在启动 hub 前设置：
 
 ```bash
@@ -171,6 +185,7 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 - 私网与 Tailscale：`docs/guides/private-network.md`
 - Tailscale Serve 回退接入：`docs/requirements/tailscale-serve-access-mode.md`
 - tmux / command 接入：`docs/guides/bridge-integration.md`
+- OpenCode local proxy：`docs/requirements/opencode-local-proxy.md`
 
 ## 当前验证状态
 

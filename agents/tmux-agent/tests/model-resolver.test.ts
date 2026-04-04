@@ -10,10 +10,12 @@ import {
 describe("model resolver parsers", () => {
   it("parses opencode model from config", () => {
     expect(parseOpenCodeModel(JSON.stringify({
-      agent: {
-        model: "gpt-5.4-mini"
+      agents: {
+        coder: {
+          model: "local.qwen-cli"
+        }
       }
-    }))).toBe("gpt-5.4-mini");
+    }))).toBe("local.qwen-cli");
   });
 
   it("parses codex model from config", () => {

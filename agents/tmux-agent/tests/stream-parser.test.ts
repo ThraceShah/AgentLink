@@ -28,6 +28,15 @@ describe("parseProviderStream", () => {
     expect(result.finalText).toBe("Error: agent coder not found");
   });
 
+  it("extracts opencode response from a whole json document", () => {
+    const result = parseProviderStream("opencode", JSON.stringify({
+      response: "ok"
+    }, null, 2));
+
+    expect(result.partialText).toBe("ok");
+    expect(result.finalText).toBe("ok");
+  });
+
   it("extracts partial and final text from qwen stream-json output", () => {
     const result = parseProviderStream("qwen", [
       JSON.stringify({

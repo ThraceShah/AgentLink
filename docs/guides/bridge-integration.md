@@ -146,10 +146,24 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 ### opencode
 
-- 使用 OpenCode CLI 的非交互 `-p` 模式
+- 使用归档版 OpenCode CLI 的非交互 `-p` 模式
+- bridge 会为每次请求生成隔离的旧版 `.opencode.json` 与临时 HOME
+- 每个 `opencode` 会话都会自动拉起一个会话级本地 proxy
+- 当前默认由该 proxy 调用 `qwen` CLI，并通过 `LOCAL_ENDPOINT` 暴露给 OpenCode
 - 默认输出格式为 `json`
-- 当前 bridge 会优先读取 JSON 中的文本结果，并把失败信息明确回传到时间线
-- 是否能真正回复，仍取决于本机 OpenCode 的 provider / agent 配置是否完整
+- bridge 会优先读取 JSON 中的文本结果，并把失败信息明确回传到时间线
+
+### opencode local proxy
+
+- 入口：`apps/opencode-proxy/src/server.ts`
+- 默认监听：`127.0.0.1` 的临时端口
+- 每个会话一个独立实例
+- 关键行为：
+  - `GET /v1/models`
+  - `POST /v1/chat/completions`
+  - 若上游要求 `stream=true`，则返回最小 SSE
+- 当前默认后端：`qwen`
+- 当前默认模型 ID：`local.qwen-cli`
 
 ### codex
 
@@ -183,6 +197,7 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 - `qwen`：支持流式部分文本更新
 - `copilot`：支持流式部分文本更新
 - `codex`：已统一到 JSON bridge，但当前以最终消息为主
+- `opencode`：当前通过本地 proxy + OpenCode CLI 实现最小可用闭环，回复仍以最终消息回传为主
 
 这意味着当前已经具备“先显示用户消息，再持续更新 agent 回复”的基本 IM 体验。
 
