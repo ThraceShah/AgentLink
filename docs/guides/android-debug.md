@@ -108,6 +108,9 @@ adb reverse tcp:8787 tcp:8787
 
 - Inbox 概览仍显示 WebSocket 连接状态
 - 会话页标题下方改为显示 agent 类型、会话状态和连接态圆点
+- App 后台时，收到新的 agent 有效消息会触发系统通知
+- 点击系统通知后，会回到 App 并打开对应会话
+- 为提高后台提醒稳定性，后台通知由前台服务承担，并通过轻量轮询持续观察新事件
 - 连接尚未完成时，命令会先排队，不再静默丢弃
 - 连接打开后，排队命令会自动刷新发送
 - 关键路径会输出到 `logcat`
@@ -177,6 +180,31 @@ adb shell am start \
 - 用户可拖动系统选择光标后执行局部复制
 
 若需要在模拟器中验证该路径，可在会话页对消息区域执行长按，再观察是否出现带 `Done` 按钮的选择对话框。
+
+## 系统通知验证
+
+当前通知策略如下：
+
+- Android 13+ 首次启动会请求通知权限
+- 仅对 agent 产生的有效消息发通知
+- App 在前台时默认不发系统通知，避免和当前界面重复
+- App 在后台时，`text_output`、`need_approval`、`need_user_input`、`task_failed`、`artifact_generated`、`image_available` 会触发通知
+
+在模拟器中可按以下方式自测：
+
+```bash
+adb reverse tcp:8787 tcp:8787
+adb shell am start -n im.agent.personal/.MainActivity --es debug_hub_origin http://127.0.0.1:8787
+adb shell input keyevent KEYCODE_HOME
+```
+
+然后向某个 agent 发送一条会产生回复的命令，再用下面命令检查通知：
+
+```bash
+adb shell dumpsys notification --noredact | grep -n "im.agent.personal"
+```
+
+若要验证点击跳转，可在模拟器通知栏点开对应通知，预期会直接打开对应会话。
 
 若是真机通过 USB + `adb reverse` 联调，应同时覆盖 hub 地址为 `127.0.0.1`：
 

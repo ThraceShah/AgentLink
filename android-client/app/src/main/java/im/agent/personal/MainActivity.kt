@@ -1,12 +1,17 @@
 package im.agent.personal
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ApplicationInfo
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.BorderStroke
@@ -83,6 +88,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.contentOrNull
@@ -134,10 +140,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val isDebuggableBuild = isDebuggableBuild()
-        readDebugHubOrigin(intent, isDebuggableBuild)?.let(viewModel::updateHubOrigin)
+        handleLaunchIntent(intent, isDebuggableBuild)
 
         setContent {
             AgentImTheme {
+                RequestNotificationPermission()
                 val uiState by viewModel.uiState.collectAsStateWithLifecycle()
                 LaunchedEffect(Unit) { viewModel.load() }
                 AppContent(
@@ -161,6 +168,12 @@ class MainActivity : ComponentActivity() {
                 runDebugProbe(debugProbe)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLaunchIntent(intent, isDebuggableBuild())
     }
 
     private suspend fun runDebugProbe(debugProbe: DebugCommandProbe) {
@@ -191,6 +204,33 @@ class MainActivity : ComponentActivity() {
         }
 
         Log.w(debugProbeTag, "Debug probe timed out before agent became ready")
+    }
+
+    private fun handleLaunchIntent(intent: Intent?, isDebuggableBuild: Boolean) {
+        readDebugHubOrigin(intent, isDebuggableBuild)?.let(viewModel::updateHubOrigin)
+        readOpenAgentId(intent)?.let(viewModel::selectAgent)
+    }
+}
+
+@Composable
+private fun RequestNotificationPermission() {
+    val context = LocalContext.current
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        return
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { }
+
+    LaunchedEffect(Unit) {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 }
 
@@ -1573,6 +1613,11 @@ private fun readDebugHubOrigin(intent: Intent?, isDebuggableBuild: Boolean): Str
 
     Log.i(debugProbeTag, "Applying debug hub origin override: $origin")
     return origin
+}
+
+private fun readOpenAgentId(intent: Intent?): String? {
+    val agentId = intent?.getStringExtra(openAgentIdKey)?.trim().orEmpty()
+    return agentId.ifEmpty { null }
 }
 
 private fun ComponentActivity.isDebuggableBuild(): Boolean {

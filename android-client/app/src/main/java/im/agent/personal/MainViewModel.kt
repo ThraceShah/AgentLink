@@ -68,6 +68,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     workspaceRootHint = sessionConfig.workspaceRootHint,
                     socketState = SocketConnectionState.CONNECTING
                 )
+                AgentNotificationService.start(getApplication(), config.origin)
                 repository!!.connect(
                     onConnectionStateChange = { socketState ->
                         _uiState.value = _uiState.value.copy(socketState = socketState)
