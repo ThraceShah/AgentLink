@@ -143,6 +143,11 @@ export const welcomeMessageSchema = z.object({
   serverTime: z.string()
 });
 
+export const heartbeatAckMessageSchema = z.object({
+  type: z.literal("heartbeat_ack"),
+  timestamp: z.string()
+});
+
 export const bootstrapMessageSchema = z.object({
   type: z.literal("bootstrap"),
   agents: z.array(agentSnapshotSchema),
@@ -166,6 +171,7 @@ export const errorMessageSchema = z.object({
 
 export const outgoingMessageSchema = z.union([
   welcomeMessageSchema,
+  heartbeatAckMessageSchema,
   bootstrapMessageSchema,
   agentDeltaMessageSchema,
   timelineEventMessageSchema,

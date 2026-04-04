@@ -108,6 +108,7 @@ adb reverse tcp:8787 tcp:8787
 
 - Inbox 概览仍显示 WebSocket 连接状态
 - 会话页标题下方改为显示 agent 类型、会话状态和连接态圆点
+- 前台 WebSocket 已增加应用层心跳与自动重连退避
 - App 后台时，收到新的 agent 有效消息会触发系统通知
 - 点击系统通知后，会回到 App 并打开对应会话
 - 为提高后台提醒稳定性，后台通知由前台服务承担，并通过轻量轮询持续观察新事件
@@ -141,6 +142,7 @@ adb logcat -d --pid="$pid"
 - App 列表页已加载 agent，说明 bootstrap HTTP 已打通
 - Inbox 页若显示 `Live`，说明 WebSocket 已建立
 - 会话页若显示绿色连接圆点，说明实时通道已建立
+- `logcat` 中若出现 `Heartbeat acknowledged`，说明应用层心跳正常
 - 命令发送成功后，hub 时间线中应新增 `user_command`
 - 对于 `status` 或 `send_text`，应继续观察到 agent 回执事件
 - 若 Inbox 页显示 `Fallback` 或会话页显示离线色圆点，说明实时通道不可用，但客户端仍会通过 HTTP 定时刷新

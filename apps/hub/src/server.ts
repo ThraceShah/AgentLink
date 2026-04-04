@@ -341,6 +341,10 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       }
 
       if (message.type === "heartbeat") {
+        send(socket, {
+          type: "heartbeat_ack",
+          timestamp: nowIso()
+        });
         const context = contexts.get(socket);
         if (context?.agentId) {
           const agent = store.getAgent(context.agentId);

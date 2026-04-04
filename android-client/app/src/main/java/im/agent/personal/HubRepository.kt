@@ -1,6 +1,14 @@
 package im.agent.personal
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -13,9 +21,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
+import java.time.Instant
 import java.util.UUID
 
 private const val logTag = "AgentImHub"
+private const val heartbeatIntervalMs = 20_000L
+private const val heartbeatTimeoutMs = 45_000L
+private const val reconnectDelayCapMs = 15_000L
 
 enum class SocketConnectionState {
     DISCONNECTED,
@@ -29,9 +41,18 @@ class HubRepository(
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var socket: WebSocket? = null
     private var connectionState: SocketConnectionState = SocketConnectionState.DISCONNECTED
     private val pendingCommands = mutableListOf<CommandEnvelope>()
+    private var heartbeatJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var shouldStayConnected = false
+    private var reconnectAttempts = 0
+    private var lastInboundAt = 0L
+    private var onConnectionStateChange: ((SocketConnectionState) -> Unit)? = null
+    private var onAgentDelta: ((AgentSnapshot) -> Unit)? = null
+    private var onTimelineEvent: ((TimelineEvent) -> Unit)? = null
 
     suspend fun fetchBootstrap(): BootstrapResponse {
         return get("/api/bootstrap")
@@ -72,50 +93,98 @@ class HubRepository(
         onAgentDelta: (AgentSnapshot) -> Unit,
         onTimelineEvent: (TimelineEvent) -> Unit
     ) {
-        close()
+        this.onConnectionStateChange = onConnectionStateChange
+        this.onAgentDelta = onAgentDelta
+        this.onTimelineEvent = onTimelineEvent
+        shouldStayConnected = true
+        reconnectAttempts = 0
+        openSocket()
+    }
+
+    fun resolveArtifactUrl(path: String): String {
+        return "${baseHttpUrl.trimEnd('/')}/" + path.trimStart('/')
+    }
+
+    fun close() {
+        shouldStayConnected = false
+        reconnectJob?.cancel()
+        reconnectJob = null
+        stopHeartbeat()
+        closeSocket()
+        connectionState = SocketConnectionState.DISCONNECTED
+        onConnectionStateChange?.invoke(connectionState)
+    }
+
+    private fun openSocket() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        stopHeartbeat()
+        closeSocket()
         connectionState = SocketConnectionState.CONNECTING
-        onConnectionStateChange(connectionState)
+        onConnectionStateChange?.invoke(connectionState)
         Log.i(logTag, "Opening WebSocket to $baseWsUrl")
         val request = Request.Builder().url(baseWsUrl).build()
-        socket = client.newWebSocket(request, object : WebSocketListener() {
+        val activeSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (socket !== webSocket) {
+                    return
+                }
                 val hello = HelloEnvelope(
                     client = ClientInfo(
                         clientId = UUID.randomUUID().toString(),
                         deviceName = "Android"
                     )
                 )
+                reconnectAttempts = 0
+                lastInboundAt = System.currentTimeMillis()
                 connectionState = SocketConnectionState.CONNECTED
-                onConnectionStateChange(connectionState)
+                onConnectionStateChange?.invoke(connectionState)
                 Log.i(logTag, "WebSocket opened")
                 webSocket.send(json.encodeToString(hello))
+                startHeartbeat(webSocket)
                 flushPendingCommands()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (socket !== webSocket) {
+                    return
+                }
+                lastInboundAt = System.currentTimeMillis()
                 val root = json.parseToJsonElement(text).jsonObject
                 when (root["type"]?.jsonPrimitive?.content) {
-                    "agent_delta" -> onAgentDelta(json.decodeFromString<AgentDeltaEnvelope>(text).agent)
-                    "timeline_event" -> onTimelineEvent(json.decodeFromString<TimelineEnvelope>(text).event)
+                    "agent_delta" -> onAgentDelta?.invoke(json.decodeFromString<AgentDeltaEnvelope>(text).agent)
+                    "timeline_event" -> onTimelineEvent?.invoke(json.decodeFromString<TimelineEnvelope>(text).event)
+                    "heartbeat_ack" -> Log.v(logTag, "Heartbeat acknowledged")
                 }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (socket !== webSocket) {
+                    return
+                }
+                stopHeartbeat()
                 connectionState = SocketConnectionState.DISCONNECTED
-                onConnectionStateChange(connectionState)
+                onConnectionStateChange?.invoke(connectionState)
                 Log.i(logTag, "WebSocket closed: $code $reason")
+                scheduleReconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (socket !== webSocket) {
+                    return
+                }
+                stopHeartbeat()
                 connectionState = SocketConnectionState.DISCONNECTED
-                onConnectionStateChange(connectionState)
+                onConnectionStateChange?.invoke(connectionState)
                 Log.e(
                     logTag,
                     "WebSocket failure: ${t.message ?: "unknown"}; response=${response?.code}",
                     t
                 )
+                scheduleReconnect()
             }
         })
+        socket = activeSocket
     }
 
     fun sendCommand(agentId: String, type: String, text: String? = null, commandId: String = UUID.randomUUID().toString()): String {
@@ -131,17 +200,60 @@ class HubRepository(
         return commandId
     }
 
-    fun resolveArtifactUrl(path: String): String {
-        return "${baseHttpUrl.trimEnd('/')}/" + path.trimStart('/')
+    private fun startHeartbeat(webSocket: WebSocket) {
+        heartbeatJob?.cancel()
+        heartbeatJob = scope.launch {
+            while (isActive && shouldStayConnected) {
+                delay(heartbeatIntervalMs)
+                if (connectionState != SocketConnectionState.CONNECTED) {
+                    continue
+                }
+
+                val now = System.currentTimeMillis()
+                if (lastInboundAt != 0L && now - lastInboundAt > heartbeatTimeoutMs) {
+                    Log.w(logTag, "Heartbeat timed out; forcing reconnect")
+                    webSocket.close(4000, "heartbeat timeout")
+                    break
+                }
+
+                val heartbeat = """
+                    {"type":"heartbeat","timestamp":"${Instant.now()}"}
+                """.trimIndent()
+                webSocket.send(heartbeat)
+            }
+        }
     }
 
-    fun close() {
-        if (socket != null) {
+    private fun stopHeartbeat() {
+        heartbeatJob?.cancel()
+        heartbeatJob = null
+    }
+
+    private fun scheduleReconnect() {
+        if (!shouldStayConnected || reconnectJob?.isActive == true) {
+            return
+        }
+
+        reconnectAttempts += 1
+        val exponent = (reconnectAttempts - 1).coerceAtMost(4)
+        val delayMs = minOf(1_000L * (1L shl exponent), reconnectDelayCapMs)
+        reconnectJob = scope.launch {
+            Log.i(logTag, "Scheduling reconnect in ${delayMs}ms")
+            delay(delayMs)
+            if (!shouldStayConnected) {
+                return@launch
+            }
+            openSocket()
+        }
+    }
+
+    private fun closeSocket() {
+        val currentSocket = socket
+        socket = null
+        if (currentSocket != null) {
             Log.i(logTag, "Closing WebSocket")
         }
-        socket?.close(1000, "client closing")
-        socket = null
-        connectionState = SocketConnectionState.DISCONNECTED
+        currentSocket?.close(1000, "client closing")
     }
 
     private fun flushPendingCommands() {

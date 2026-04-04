@@ -90,6 +90,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     onConnectionStateChange = { socketState ->
                         _uiState.value = _uiState.value.copy(socketState = socketState)
                         if (socketState == SocketConnectionState.CONNECTED) {
+                            refreshFromHub()
                             stopPolling()
                         } else {
                             startPolling()
