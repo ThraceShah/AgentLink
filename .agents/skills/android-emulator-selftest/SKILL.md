@@ -25,7 +25,7 @@ Complete all of the following unless blocked by an explicit environment issue:
 3. Install the APK on the emulator
 4. Launch the app
 5. Run at least one probe against a reachable hub/demo agent flow
-6. Refresh `temp_docs/apk/personal-agent-im-debug.apk`
+6. Refresh `temp_docs/apk/agentlink-debug.apk`
 7. Report exactly what passed and what was blocked
 
 ## Standard workflow
@@ -35,7 +35,7 @@ Complete all of the following unless blocked by an explicit environment issue:
    `./.agents/skills/android-emulator-selftest/scripts/run_selftest.sh`
 3. If the script fails, inspect the failing step before retrying. Do not silently skip emulator verification.
 4. If the hub or demo agent is not running, start temporary local instances for the test.
-5. After success, verify that `temp_docs/apk/personal-agent-im-debug.apk` exists and matches the latest build output timestamp.
+5. After success, verify that `temp_docs/apk/agentlink-debug.apk` exists and matches the latest build output timestamp.
 
 ## Notes
 

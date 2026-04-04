@@ -278,7 +278,7 @@ adb shell am start \
 4. 安装 APK 到模拟器
 5. 启动 App 并触发一次 `status` 调试探针
 6. 通过 `logcat` 校验命令已被客户端成功发出
-7. 刷新 `temp_docs/apk/personal-agent-im-debug.apk`
+7. 刷新 `temp_docs/apk/agentlink-debug.apk`
 
 ## Tailscale Serve 回退模式
 
