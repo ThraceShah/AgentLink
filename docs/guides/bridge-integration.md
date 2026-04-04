@@ -146,12 +146,12 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 ### opencode
 
-- 使用归档版 OpenCode CLI 的非交互 `-p` 模式
+- 使用新版 OpenCode CLI 的 `run` 子命令
 - 直接调用本机真实 `opencode` CLI
 - 使用用户已有的 OpenCode 全局配置与 provider 认证
 - 只有在真实 OpenCode 配置可用时，Hub 才会返回该 profile
 - 默认输出格式为 `json`
-- bridge 会优先读取 JSON 中的文本结果，并把失败信息明确回传到时间线
+- bridge 会优先读取新版 JSON 事件中的 `part.text`，并把失败信息明确回传到时间线
 
 ### codex
 
@@ -185,7 +185,7 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 - `qwen`：支持流式部分文本更新
 - `copilot`：支持流式部分文本更新
 - `codex`：已统一到 JSON bridge，但当前以最终消息为主
-- `opencode`：当前通过真实 OpenCode CLI 的非交互模式返回最终消息，不再使用其他 provider 伪装
+- `opencode`：当前通过真实 OpenCode CLI 的 `run --format json` 返回最终消息，不再使用其他 provider 伪装
 
 这意味着当前已经具备“先显示用户消息，再持续更新 agent 回复”的基本 IM 体验。
 

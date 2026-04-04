@@ -140,10 +140,10 @@ Android 客户端当前提供：
 4. 拉起对应 bridge
 5. 让新会话自动出现在联系人列表中
 
-当前 `opencode` profile 的实现方式为直接调用本机安装的旧版 OpenCode CLI：
+当前 `opencode` profile 的实现方式为直接调用本机安装的新版 OpenCode CLI：
 
 1. Hub 只在检测到真实可用的 OpenCode 配置时才返回 `opencode` profile
-2. tmux bridge 在 `send_text` 时直接执行本机 `opencode -p ... -f json -q`
+2. tmux bridge 在 `send_text` 时直接执行本机 `opencode run ... --format json --dir .`
 3. 实际使用的 provider、model 与认证由用户自己的 OpenCode 配置决定
 4. 若当前机器没有配置真实 OpenCode agent，则 `opencode` 不会出现在新建会话列表中
 
@@ -180,6 +180,7 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 - Tailscale Serve 回退接入：`docs/requirements/tailscale-serve-access-mode.md`
 - tmux / command 接入：`docs/guides/bridge-integration.md`
 - OpenCode 真实性修正：`docs/requirements/opencode-real-provider.md`
+- OpenCode 新版 CLI 适配：`docs/requirements/opencode-cli-v2-adapter.md`
 
 ## 当前验证状态
 

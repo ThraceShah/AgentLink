@@ -6,13 +6,15 @@ describe("parseProviderStream", () => {
   it("extracts opencode json output", () => {
     const result = parseProviderStream("opencode", [
       JSON.stringify({
-        type: "message",
-        content: "partial answer"
+        type: "text",
+        part: {
+          text: "partial answer"
+        }
       }),
       JSON.stringify({
-        type: "result",
-        data: {
-          content: "final answer"
+        type: "text",
+        part: {
+          text: "final answer"
         }
       })
     ].join("\n"));

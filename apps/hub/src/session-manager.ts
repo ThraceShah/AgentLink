@@ -23,6 +23,10 @@ export type CreateSessionInput = {
 
 export class SessionManager {
   private readonly runningBridges = new Map<string, number>();
+  private openCodeProbeCache?: {
+    checkedAt: number;
+    available: boolean;
+  };
 
   async listProfiles(): Promise<AgentProfile[]> {
     const profiles: AgentProfile[] = [];
@@ -220,11 +224,17 @@ export class SessionManager {
   }
 
   private async hasUsableOpenCodeConfig(): Promise<boolean> {
-    const config = await readOpenCodeConfig();
-    if (!config) {
-      return false;
+    const cacheTtlMs = 5 * 60 * 1000;
+    if (this.openCodeProbeCache && Date.now() - this.openCodeProbeCache.checkedAt < cacheTtlMs) {
+      return this.openCodeProbeCache.available;
     }
-    return hasUsableOpenCodeSetup(config, process.env);
+
+    const available = await probeOpenCodeAvailability();
+    this.openCodeProbeCache = {
+      checkedAt: Date.now(),
+      available
+    };
+    return available;
   }
 }
 
@@ -300,68 +310,51 @@ function shellToken(value: string): string {
   return value.replace(/[^A-Za-z0-9._/-]/g, "");
 }
 
+function shellQuoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
 function buildCommandPath(existingPath?: string): string {
   const userBins = [path.join(homedir(), ".opencode", "bin")];
   const segments = [...userBins, ...(existingPath?.split(":") ?? [])].filter(Boolean);
   return Array.from(new Set(segments)).join(":");
 }
 
-async function readOpenCodeConfig(): Promise<string | undefined> {
-  const candidatePaths = [
-    path.join(process.cwd(), ".opencode.json"),
-    path.join(homedir(), ".opencode.json"),
-    path.join(homedir(), ".config", "opencode", ".opencode.json")
+async function probeOpenCodeAvailability(): Promise<boolean> {
+  const userHome = process.env.HOME ?? homedir();
+  const candidates = [
+    path.join(userHome, ".opencode", "bin", "opencode"),
+    "opencode"
   ];
 
-  for (const configPath of candidatePaths) {
+  for (const executable of candidates) {
     try {
-      const content = await readFile(configPath, "utf8");
-      if (content.trim()) {
-        return content;
+      const command = [
+        `HOME=${shellQuoteLiteral(userHome)}`,
+        shellQuoteLiteral(executable),
+        "models"
+      ].join(" ");
+
+      const { stdout } = await execFileAsync("sh", ["-lc", command], {
+        env: {
+          ...process.env,
+          HOME: userHome,
+          PATH: buildCommandPath(process.env.PATH)
+        },
+        encoding: "utf8",
+        timeout: 20_000,
+        maxBuffer: 2 * 1024 * 1024
+      });
+
+      if (stdout.split("\n").map((line) => line.trim()).filter(Boolean).length > 0) {
+        return true;
       }
     } catch {
-      // Ignore missing files and continue.
+      // Continue trying the next candidate.
     }
   }
 
-  return undefined;
-}
-
-function hasUsableOpenCodeSetup(
-  content: string,
-  env: NodeJS.ProcessEnv
-): boolean {
-  try {
-    const parsed = JSON.parse(content) as {
-      agents?: {
-        coder?: {
-          model?: string;
-        };
-      };
-      providers?: Record<string, unknown>;
-    };
-    const model = parsed.agents?.coder?.model?.trim();
-    if (!model) {
-      return false;
-    }
-
-    const hasProviders = Object.keys(parsed.providers ?? {}).length > 0;
-    if (hasProviders) {
-      return true;
-    }
-
-    const envKeys = [
-      "OPENAI_API_KEY",
-      "ANTHROPIC_API_KEY",
-      "GOOGLE_API_KEY",
-      "GEMINI_API_KEY",
-      "AZURE_OPENAI_API_KEY",
-      "LOCAL_ENDPOINT"
-    ];
-    return envKeys.some((key) => env[key]?.trim());
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 function resolveHostUsername(): string {

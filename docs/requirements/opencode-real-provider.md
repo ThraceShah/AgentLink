@@ -26,8 +26,8 @@
 
 - Hub 只有在同时满足以下条件时，才返回 `opencode` profile：
   - 本机存在可执行的 `opencode` 命令；
-  - 当前用户存在真实可用的 OpenCode 配置；
-  - 配置中至少能解析到 `agents.coder.model`，且存在 provider 配置或等价的认证环境。
+  - 当前用户的真实 OpenCode 运行环境可成功完成一次轻量探测；
+  - 探测结果可以表明确实存在可用的真实 provider，而不是项目内代理或其他替身链路。
 
 ### 2. 执行方式
 

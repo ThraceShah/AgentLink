@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -495,15 +496,17 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
     if (!userHome) {
       throw new Error("opencode home is not configured");
     }
+    const preferredExecutable = path.join(userHome, ".opencode", "bin", "opencode");
+    const executable = fs.existsSync(preferredExecutable) ? preferredExecutable : "opencode";
     return [
       `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
       [
         `HOME=${shellQuote(userHome)}`,
-        shellQuote(path.join(userHome, ".opencode", "bin", "opencode")),
-        "-c .",
-        "-p \"$prompt\"",
-        "-f json",
-        "-q"
+        shellQuote(executable),
+        "run \"$prompt\"",
+        task.model ? `--model ${shellQuote(task.model)}` : "",
+        "--format json",
+        "--dir ."
       ].join(" ") + ` > ${shellQuote(task.commandOutputPath)} 2>&1`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");

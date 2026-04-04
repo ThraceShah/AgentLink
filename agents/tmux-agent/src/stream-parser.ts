@@ -172,6 +172,8 @@ function extractOpenCodeText(item: Record<string, any>): string | undefined {
     item.data?.message,
     item.data?.response,
     item.data?.result,
+    item.part?.text,
+    item.part?.content,
     item.message?.content,
     item.message?.text
   ];

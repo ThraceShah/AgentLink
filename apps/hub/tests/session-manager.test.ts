@@ -37,7 +37,7 @@ describe("SessionManager", () => {
     ]);
   });
 
-  it("hides opencode when qwen backend is unavailable", async () => {
+  it("hides opencode when the runtime probe fails", async () => {
     const manager = new SessionManager();
     const hasCommand = vi.spyOn(manager as any, "hasCommand");
     const hasUsableOpenCodeConfig = vi.spyOn(manager as any, "hasUsableOpenCodeConfig");
