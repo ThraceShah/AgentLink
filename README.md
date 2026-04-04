@@ -119,6 +119,7 @@ Android 客户端当前提供：
 - 用户消息即时显示
 - 首页会按最后一次真实对话时间倒序排列
 - agent 消息标签按每条消息的实际模型显示
+- 会话页底部会显示当前会话的运行态信息，例如当前模型与最近一次上下文使用量
 - 会话卡片与消息气泡支持长按复制
 - 首页新增会话入口，可直接创建新的 tmux-backed agent 会话
 - 首页新增会话入口会按当前机器真实可用的 profile 展示
@@ -181,6 +182,7 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 - tmux / command 接入：`docs/guides/bridge-integration.md`
 - OpenCode 真实性修正：`docs/requirements/opencode-real-provider.md`
 - OpenCode 新版 CLI 适配：`docs/requirements/opencode-cli-v2-adapter.md`
+- 会话运行态信息栏：`docs/requirements/session-runtime-metrics-bar.md`
 
 ## 当前验证状态
 

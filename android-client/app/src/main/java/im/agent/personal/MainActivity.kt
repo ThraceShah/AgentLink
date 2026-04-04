@@ -124,6 +124,14 @@ private data class ConversationCardState(
     val preview: String?
 )
 
+private data class ConversationRuntimeState(
+    val model: String? = null,
+    val contextUsedTokens: Int? = null,
+    val contextWindowTokens: Int? = null,
+    val outputTokens: Int? = null,
+    val provider: String? = null
+)
+
 data class DebugCommandProbe(
     val agentId: String?,
     val command: String,
@@ -426,6 +434,7 @@ private fun ConversationScreen(
     onSendInstruction: (String, String) -> Unit
 ) {
     var showDeleteConfirm by rememberSaveable(agent.agentId) { mutableStateOf(false) }
+    val runtimeState = remember(events) { deriveConversationRuntimeState(events) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -459,11 +468,14 @@ private fun ConversationScreen(
             )
         },
         bottomBar = {
-            ConversationComposer(
-                agent = agent,
-                onQuickCommand = onQuickCommand,
-                onSendInstruction = onSendInstruction
-            )
+            Column {
+                ConversationRuntimeBar(runtimeState = runtimeState)
+                ConversationComposer(
+                    agent = agent,
+                    onQuickCommand = onQuickCommand,
+                    onSendInstruction = onSendInstruction
+                )
+            }
         }
     ) { paddingValues ->
         if (showDeleteConfirm) {
@@ -522,6 +534,62 @@ private fun ConversationScreen(
                     EmptyTimelineCard()
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ConversationRuntimeBar(runtimeState: ConversationRuntimeState) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
+        tonalElevation = 3.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            RuntimeMetricPill(
+                label = "Model",
+                value = runtimeState.model ?: "unavailable"
+            )
+            RuntimeMetricPill(
+                label = "Used",
+                value = runtimeState.contextUsedTokens?.let(::formatCompactTokens) ?: "unavailable"
+            )
+            RuntimeMetricPill(
+                label = "Window",
+                value = runtimeState.contextWindowTokens?.let(::formatCompactTokens) ?: "n/a"
+            )
+        }
+    }
+}
+
+@Composable
+private fun RuntimeMetricPill(label: String, value: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
@@ -1517,8 +1585,45 @@ private fun preferredProfileId(profiles: List<AgentProfile>): String {
         ?: ""
 }
 
+private fun deriveConversationRuntimeState(events: List<TimelineEvent>): ConversationRuntimeState {
+    val latestMetadata = events
+        .asSequence()
+        .filter { it.metadata != null }
+        .filter { it.eventType == "text_output" || it.eventType == "task_running" || it.eventType == "task_completed" || it.eventType == "task_failed" }
+        .maxByOrNull { it.timestamp }
+        ?.metadata
+        ?: return ConversationRuntimeState()
+
+    return ConversationRuntimeState(
+        model = latestMetadata.stringValue("model"),
+        contextUsedTokens = latestMetadata.intValue("contextUsedTokens")
+            ?: latestMetadata.intValue("totalTokens")
+            ?: latestMetadata.intValue("inputTokens"),
+        contextWindowTokens = latestMetadata.intValue("contextWindowTokens"),
+        outputTokens = latestMetadata.intValue("outputTokens"),
+        provider = latestMetadata.stringValue("provider")
+    )
+}
+
 private fun eventModelLabel(event: TimelineEvent): String? {
     return event.metadata?.get("model")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+}
+
+private fun formatCompactTokens(value: Int): String {
+    val absolute = kotlin.math.abs(value.toDouble())
+    return when {
+        absolute >= 1_000_000 -> String.format("%.1fM", value / 1_000_000.0)
+        absolute >= 1_000 -> String.format("%.1fk", value / 1_000.0)
+        else -> value.toString()
+    }
+}
+
+private fun kotlinx.serialization.json.JsonObject.stringValue(key: String): String? {
+    return this[key]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+}
+
+private fun kotlinx.serialization.json.JsonObject.intValue(key: String): Int? {
+    return this[key]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
 }
 
 private fun tmuxSessionLine(agent: AgentSnapshot): String {

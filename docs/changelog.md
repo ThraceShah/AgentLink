@@ -66,3 +66,4 @@
 - 修复 hub 会话配置中的主机用户名字段缺失问题：`/api/session-config` 现在会稳定返回 `hostUsername`，Android 重连时不再因缺字段报错，左上角用户名也不再回退为 `unknown`。
 - 收紧 `opencode` profile 语义：不再使用本地 `qwen` 代理伪装成 OpenCode；只有当本机真实 OpenCode 配置可用时才会暴露 `opencode`，否则 Android 新建会话默认回退到其他真实可用 agent。
 - 适配当前机器上的新版 OpenCode CLI：Hub 改为基于真实 `opencode run` 结果做短时缓存探测，tmux bridge 改用 `opencode run ... --format json --dir .` 执行，并补齐 `part.text` 输出解析，使真实 OpenCode 会话可在 Android 中正常出现和回复。
+- 新增会话运行态信息栏：Android 会话页底部现在会显示最近一次有效推理的模型与上下文使用量；tmux bridge 也会尽量从 `opencode`、`qwen`、`codex`、`copilot` 的输出中提取模型和 usage metadata，其中 `opencode` 会优先显示真实基模而不再只显示 provider 名。

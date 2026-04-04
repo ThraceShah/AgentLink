@@ -271,6 +271,9 @@ async function pollExecTask(): Promise<void> {
   }
 
   const streamSnapshot = parseProviderStream(profile, outputContent);
+  if (streamSnapshot.model && streamSnapshot.model != task.model) {
+    task.model = streamSnapshot.model;
+  }
   const candidateText = streamSnapshot.partialText?.trim();
   if (candidateText && candidateText != task.emittedText) {
     task.emittedText = candidateText;
@@ -279,10 +282,7 @@ async function pollExecTask(): Promise<void> {
       id: task.eventId,
       eventType: "text_output",
       body: candidateText,
-      metadata: {
-        model: task.model,
-        provider: profile
-      }
+      metadata: streamMetadata(task, streamSnapshot)
     });
   }
 
@@ -302,10 +302,7 @@ async function pollExecTask(): Promise<void> {
       id: task.eventId,
       eventType: "text_output",
       body: finalText,
-      metadata: {
-        model: task.model,
-        provider: profile
-      }
+      metadata: streamMetadata(task, streamSnapshot)
     });
   }
 
@@ -313,14 +310,16 @@ async function pollExecTask(): Promise<void> {
     await runtime.emitEvent({
       eventType: "task_completed",
       body: `${providerDisplayName(profile)} finished the request.`,
-      status: "completed"
+      status: "completed",
+      metadata: streamMetadata(task, streamSnapshot)
     });
   } else {
     const fallback = latestReply || `${providerDisplayName(profile)} command failed.`;
     await runtime.emitEvent({
       eventType: "task_failed",
       body: fallback,
-      status: "failed"
+      status: "failed",
+      metadata: streamMetadata(task, streamSnapshot)
     });
   }
 
@@ -506,7 +505,8 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
         "run \"$prompt\"",
         task.model ? `--model ${shellQuote(task.model)}` : "",
         "--format json",
-        "--dir ."
+        "--dir .",
+        "--print-logs"
       ].join(" ") + ` > ${shellQuote(task.commandOutputPath)} 2>&1`,
       `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
     ].join("; ");
@@ -559,4 +559,18 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
   }
 
   throw new Error(`unsupported exec profile: ${currentProfile}`);
+}
+
+function streamMetadata(task: ActiveExecTask, snapshot: ReturnType<typeof parseProviderStream>): Record<string, unknown> {
+  return {
+    model: snapshot.model ?? task.model,
+    provider: profile,
+    inputTokens: snapshot.inputTokens,
+    outputTokens: snapshot.outputTokens,
+    totalTokens: snapshot.totalTokens,
+    cachedInputTokens: snapshot.cachedInputTokens,
+    reasoningTokens: snapshot.reasoningTokens,
+    contextUsedTokens: snapshot.contextUsedTokens,
+    contextWindowTokens: snapshot.contextWindowTokens
+  };
 }
