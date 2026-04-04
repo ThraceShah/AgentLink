@@ -1,6 +1,6 @@
-# Personal Private Agent IM
+# AgentLink
 
-一个运行在局域网、Tailscale tailnet 或其他私网中的个人私有 Agent IM 原型系统。
+一个运行在局域网、Tailscale tailnet 或其他私网中的个人私有 Agent IM 原型系统，产品名为 `AgentLink`。
 
 它不是通用 IM，也不是远程桌面，而是一个面向“你”和“多个动态变化的 code agents”之间的轻量消息与控制系统。
 

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PersonalAgentIm"
+rootProject.name = "AgentLink"
 include(":app")
