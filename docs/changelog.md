@@ -51,3 +51,5 @@
 - 收紧 Android 降级连接态文案，使用更短的 `Live`、`Syncing`、`Fallback` 状态标识，修复部分会话页排版拥挤问题。
 - 新增 Android 模拟器标准自测流程：项目内置 `.agents/skills/android-emulator-selftest/` skill 与脚本，可统一执行构建、安装、探针验证和 APK 交付刷新。
 - 更新项目协作约束：所有功能完成后都必须自测；Android 改动默认使用本机模拟器完成自测。
+- 优化 Android 会话页头部信息布局：移除独立状态卡片，将 agent 类型、会话状态与连接态圆点收拢到会话标题下方，避免 `Live/Fallback` 文案换行和首屏拥挤。
+- 调整 Android 消息复制交互：消息长按后改为进入可选文本模式，默认全选整条消息，支持用户拖动光标进行局部复制。

@@ -38,6 +38,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.AlertDialog
@@ -75,6 +76,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -396,10 +399,9 @@ private fun ConversationScreen(
                 title = {
                     Column {
                         Text(agent.displayName, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            agent.kind,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ConversationMetaRow(
+                            agent = agent,
+                            socketState = state.socketState
                         )
                     }
                 },
@@ -467,9 +469,6 @@ private fun ConversationScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                AgentHeaderCard(agent = agent, socketState = state.socketState)
-            }
             items(visibleEvents, key = { it.id }) { event ->
                 TimelineMessageCard(
                     event = event,
@@ -873,43 +872,30 @@ private fun AgentConversationCard(
 }
 
 @Composable
-private fun AgentHeaderCard(agent: AgentSnapshot, socketState: SocketConnectionState) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
-        ),
-        shape = RoundedCornerShape(24.dp)
+private fun ConversationMetaRow(agent: AgentSnapshot, socketState: SocketConnectionState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Text(
+            text = prettyAgentLabel(agent),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AgentAvatar(agent = agent)
-                    Column {
-                        Text(agent.displayName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            tmuxSessionLine(agent),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-                SocketStateChip(socketState)
-            }
-
             Text(
-                "Status: ${agent.status.replace('_', ' ')}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall
+                text = agent.status.replace('_', ' '),
+                style = MaterialTheme.typography.bodySmall,
+                color = statusColors(agent.status).second,
+                maxLines = 1
             )
+            SocketStateDot(socketState = socketState)
         }
     }
 }
@@ -923,11 +909,18 @@ private fun TimelineMessageCard(
 ) {
     val bubbleColors = messageBubbleColors(event)
     val speaker = timelineSpeaker(event, agent)
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
     val alignment = when (event.eventType) {
         "user_command" -> Arrangement.End
         else -> Arrangement.Start
+    }
+    var selectableText by remember(event.id) { mutableStateOf<String?>(null) }
+
+    selectableText?.let { text ->
+        SelectableTextDialog(
+            title = speaker ?: "Message",
+            initialText = text,
+            onDismiss = { selectableText = null }
+        )
     }
 
     Row(
@@ -940,14 +933,7 @@ private fun TimelineMessageCard(
                 .combinedClickable(
                     onClick = {},
                     onLongClick = {
-                        timelineCopyText(event)?.let { text ->
-                            copyText(
-                                clipboardManager = clipboardManager,
-                                context = context,
-                                label = "Message",
-                                value = text
-                            )
-                        }
+                        selectableText = timelineSelectableText(event)
                     }
                 ),
             colors = CardDefaults.cardColors(containerColor = bubbleColors.first),
@@ -987,7 +973,10 @@ private fun TimelineMessageCard(
                 }
 
                 timelineBody(event)?.let {
-                    Text(it, color = bubbleColors.second)
+                    SelectableTimelineText(
+                        text = it,
+                        color = bubbleColors.second
+                    )
                 }
 
                 event.artifact?.let { artifact ->
@@ -1007,10 +996,10 @@ private fun TimelineMessageCard(
                         )
                     }
                     artifact.caption?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = bubbleColors.second.copy(alpha = 0.8f)
+                        SelectableTimelineText(
+                            text = it,
+                            color = bubbleColors.second.copy(alpha = 0.8f),
+                            styleBodySmall = true
                         )
                     }
                     if (artifact.kind != "image") {
@@ -1030,6 +1019,61 @@ private fun TimelineMessageCard(
             }
         }
     }
+}
+
+@Composable
+private fun SelectableTimelineText(
+    text: String,
+    color: Color,
+    styleBodySmall: Boolean = false
+) {
+    SelectionContainer {
+        Text(
+            text = text,
+            color = color,
+            style = if (styleBodySmall) {
+                MaterialTheme.typography.bodySmall
+            } else {
+                MaterialTheme.typography.bodyMedium
+            }
+        )
+    }
+}
+
+@Composable
+private fun SelectableTextDialog(
+    title: String,
+    initialText: String,
+    onDismiss: () -> Unit
+) {
+    var fieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(
+            TextFieldValue(
+                text = initialText,
+                selection = TextRange(0, initialText.length)
+            )
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = fieldValue,
+                onValueChange = { fieldValue = it },
+                modifier = Modifier.fillMaxWidth(),
+                readOnly = true,
+                minLines = 6,
+                maxLines = 12
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1171,6 +1215,22 @@ private fun SocketStateChip(socketState: SocketConnectionState) {
             color = content
         )
     }
+}
+
+@Composable
+private fun SocketStateDot(socketState: SocketConnectionState) {
+    val color = when (socketState) {
+        SocketConnectionState.DISCONNECTED -> Color(0xFFFF8D92)
+        SocketConnectionState.CONNECTING -> Color(0xFFFFC76C)
+        SocketConnectionState.CONNECTED -> Color(0xFF8BD3C7)
+    }
+    Box(
+        modifier = Modifier
+            .size(10.dp)
+            .clip(CircleShape)
+            .background(color)
+            .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+    )
 }
 
 @Composable
@@ -1401,7 +1461,7 @@ private fun conversationPreview(event: TimelineEvent): String? {
     }
 }
 
-private fun timelineCopyText(event: TimelineEvent): String? {
+private fun timelineSelectableText(event: TimelineEvent): String? {
     val body = event.body?.trim()
     if (!body.isNullOrEmpty()) {
         return body
