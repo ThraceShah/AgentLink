@@ -70,3 +70,4 @@
 - 收敛会话底部运行态栏：Android 会话页改为在输入框下方使用细窄纯文字栏展示上下文占用，格式为 `已用/窗口`，不再重复显示模型名称，也不再使用胶囊式标签控件。
 - 清空 Hub 当前运行数据：删除现有会话缓存与时间线，并清理 `data/artifacts/` 下的历史产物，便于重新开始新的验证。
 - 完成 `AgentLink` 品牌调整：Android 应用显示名与项目对外标题统一为 `AgentLink`，并新增根目录 `MIT` 许可协议文件。
+- 完成 Android 包名切换：客户端 `namespace` 与 `applicationId` 已从 `im.agent.personal` 改为 `im.agent.link`，并同步更新 Kotlin 包声明、Android 自测脚本与 adb 调试文档。

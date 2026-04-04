@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "im.agent.personal"
+    namespace = "im.agent.link"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "im.agent.personal"
+        applicationId = "im.agent.link"
         minSdk = 29
         targetSdk = 35
         versionCode = 1

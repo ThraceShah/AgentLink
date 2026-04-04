@@ -1,4 +1,4 @@
-package im.agent.personal
+package im.agent.link
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

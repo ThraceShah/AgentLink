@@ -1,4 +1,4 @@
-package im.agent.personal
+package im.agent.link
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme

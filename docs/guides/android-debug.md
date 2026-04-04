@@ -126,15 +126,15 @@ adb reverse tcp:8787 tcp:8787
 
 ```bash
 adb reverse tcp:8787 tcp:8787
-adb shell am force-stop im.agent.personal
+adb shell am force-stop im.agent.link
 adb logcat -c
-adb shell am start -n im.agent.personal/.MainActivity
+adb shell am start -n im.agent.link/.MainActivity
 ```
 
 随后可抓取应用进程日志：
 
 ```bash
-pid=$(adb shell pidof im.agent.personal | tr -d '\r')
+pid=$(adb shell pidof im.agent.link | tr -d '\r')
 adb logcat -d --pid="$pid"
 ```
 
@@ -152,9 +152,9 @@ adb logcat -d --pid="$pid"
 
 ```bash
 adb reverse tcp:8787 tcp:8787
-adb shell am force-stop im.agent.personal
+adb shell am force-stop im.agent.link
 adb shell am start \
-  -n im.agent.personal/.MainActivity \
+  -n im.agent.link/.MainActivity \
   --ez debug_probe_enabled true \
   --es debug_probe_agent_id demo-agent \
   --es debug_probe_command status \
@@ -165,7 +165,7 @@ adb shell am start \
 
 ```bash
 adb shell am start \
-  -n im.agent.personal/.MainActivity \
+  -n im.agent.link/.MainActivity \
   --ez debug_probe_enabled true \
   --es debug_probe_agent_id demo-agent \
   --es debug_probe_command send_text \
@@ -198,14 +198,14 @@ adb shell am start \
 
 ```bash
 adb reverse tcp:8787 tcp:8787
-adb shell am start -n im.agent.personal/.MainActivity --es debug_hub_origin http://127.0.0.1:8787
+adb shell am start -n im.agent.link/.MainActivity --es debug_hub_origin http://127.0.0.1:8787
 adb shell input keyevent KEYCODE_HOME
 ```
 
 然后向某个 agent 发送一条会产生回复的命令，再用下面命令检查通知：
 
 ```bash
-adb shell dumpsys notification --noredact | grep -n "im.agent.personal"
+adb shell dumpsys notification --noredact | grep -n "im.agent.link"
 ```
 
 若要验证点击跳转，可在模拟器通知栏点开对应通知，预期会直接打开对应会话。
@@ -215,7 +215,7 @@ adb shell dumpsys notification --noredact | grep -n "im.agent.personal"
 ```bash
 adb reverse tcp:8787 tcp:8787
 adb shell am start \
-  -n im.agent.personal/.MainActivity \
+  -n im.agent.link/.MainActivity \
   --es debug_hub_origin http://127.0.0.1:8787 \
   --ez debug_probe_enabled true \
   --es debug_probe_agent_id demo-agent \

@@ -1,4 +1,4 @@
-package im.agent.personal
+package im.agent.link
 
 import android.Manifest
 import android.app.Application
