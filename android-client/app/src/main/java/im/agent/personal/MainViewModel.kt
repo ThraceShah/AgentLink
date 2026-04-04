@@ -21,6 +21,7 @@ data class MainUiState(
     val events: List<TimelineEvent> = emptyList(),
     val profiles: List<AgentProfile> = emptyList(),
     val workspaceRootHint: String = "~/code",
+    val hostUsername: String = "",
     val selectedAgentId: String? = null,
     val isConnecting: Boolean = false,
     val isCreatingSession: Boolean = false,
@@ -86,6 +87,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     events = bootstrap.events,
                     profiles = profiles,
                     workspaceRootHint = sessionConfig.workspaceRootHint,
+                    hostUsername = sessionConfig.hostUsername,
                     socketState = SocketConnectionState.CONNECTING
                 )
                 AgentNotificationService.start(getApplication(), config.origin)
@@ -176,7 +178,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     mergeBootstrap(bootstrap)
                     _uiState.value = _uiState.value.copy(
                         profiles = profiles,
-                        workspaceRootHint = sessionConfig?.workspaceRootHint ?: _uiState.value.workspaceRootHint
+                        workspaceRootHint = sessionConfig?.workspaceRootHint ?: _uiState.value.workspaceRootHint,
+                        hostUsername = sessionConfig?.hostUsername ?: _uiState.value.hostUsername
                     )
                     val matched = bootstrap.agents.firstOrNull { it.displayName == sessionName || it.agentId == sessionName }
                     if (matched != null) {

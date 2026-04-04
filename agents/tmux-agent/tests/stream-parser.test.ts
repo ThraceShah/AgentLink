@@ -3,6 +3,31 @@ import { describe, expect, it } from "vitest";
 import { parseProviderStream } from "../src/stream-parser.js";
 
 describe("parseProviderStream", () => {
+  it("extracts opencode json output", () => {
+    const result = parseProviderStream("opencode", [
+      JSON.stringify({
+        type: "message",
+        content: "partial answer"
+      }),
+      JSON.stringify({
+        type: "result",
+        data: {
+          content: "final answer"
+        }
+      })
+    ].join("\n"));
+
+    expect(result.partialText).toBe("final answer");
+    expect(result.finalText).toBe("final answer");
+  });
+
+  it("falls back to plain text for opencode errors", () => {
+    const result = parseProviderStream("opencode", "Error: agent coder not found");
+
+    expect(result.partialText).toBe("Error: agent coder not found");
+    expect(result.finalText).toBe("Error: agent coder not found");
+  });
+
   it("extracts partial and final text from qwen stream-json output", () => {
     const result = parseProviderStream("qwen", [
       JSON.stringify({

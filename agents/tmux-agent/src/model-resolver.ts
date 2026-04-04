@@ -15,6 +15,10 @@ export async function resolveProviderModel(profile: BridgeProfile): Promise<stri
     return explicit;
   }
 
+  if (profile === "opencode") {
+    return resolveOpenCodeModel();
+  }
+
   if (profile === "codex") {
     return resolveCodexModel();
   }
@@ -25,6 +29,30 @@ export async function resolveProviderModel(profile: BridgeProfile): Promise<stri
 
   if (profile === "copilot") {
     return resolveCopilotModel();
+  }
+
+  return undefined;
+}
+
+async function resolveOpenCodeModel(): Promise<string | undefined> {
+  const envModel = process.env.OPENCODE_MODEL?.trim();
+  if (envModel) {
+    return envModel;
+  }
+
+  const candidatePaths = [
+    path.join(homedir(), ".config", "opencode", "config.json"),
+    path.join(homedir(), ".opencode", "config.json")
+  ];
+
+  for (const configPath of candidatePaths) {
+    const config = await safeReadFile(configPath);
+    if (config) {
+      const model = parseOpenCodeModel(config);
+      if (model) {
+        return model;
+      }
+    }
   }
 
   return undefined;
@@ -117,6 +145,26 @@ export function parseQwenModel(content: string): string | undefined {
   try {
     const parsed = JSON.parse(content) as { model?: { name?: string } };
     return parsed.model?.name?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function parseOpenCodeModel(content: string): string | undefined {
+  try {
+    const parsed = JSON.parse(content) as {
+      model?: string;
+      agent?: {
+        model?: string;
+      };
+      provider?: {
+        model?: string;
+      };
+    };
+    return parsed.model?.trim()
+      || parsed.agent?.model?.trim()
+      || parsed.provider?.model?.trim()
+      || undefined;
   } catch {
     return undefined;
   }

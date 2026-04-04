@@ -61,9 +61,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -317,14 +314,10 @@ private fun InboxScreen(
                     titleContentColor = MaterialTheme.colorScheme.onBackground
                 ),
                 title = {
-                    Column {
-                        Text("Agent Inbox", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Personal private agent control",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Text(
+                        state.hostUsername.ifBlank { "unknown" },
+                        fontWeight = FontWeight.SemiBold
+                    )
                 },
                 actions = {
                     TextButton(onClick = { showCreateSessionDialog = true }) {
@@ -660,10 +653,11 @@ private fun CreateSessionDialog(
     onDismiss: () -> Unit,
     onConfirm: (String, String, String) -> Unit
 ) {
+    val orderedProfiles = remember(profiles) { sortAgentProfiles(profiles) }
     var sessionName by rememberSaveable { mutableStateOf("") }
     var workdir by rememberSaveable { mutableStateOf("") }
-    var selectedProfileId by rememberSaveable(profiles) {
-        mutableStateOf(profiles.firstOrNull()?.id.orEmpty())
+    var selectedProfileId by rememberSaveable(orderedProfiles) {
+        mutableStateOf(preferredProfileId(orderedProfiles))
     }
 
     AlertDialog(
@@ -679,7 +673,7 @@ private fun CreateSessionDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    profiles.forEach { profile ->
+                    orderedProfiles.forEach { profile ->
                         AssistChip(
                             onClick = { selectedProfileId = profile.id },
                             label = { Text(profile.label) },
@@ -703,7 +697,7 @@ private fun CreateSessionDialog(
                     onValueChange = { sessionName = it },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Session name") },
-                    placeholder = { Text("for example: codex-fix-login") },
+                    placeholder = { Text("for example: opencode-fix-login") },
                     singleLine = true
                 )
                 OutlinedTextField(
@@ -772,16 +766,6 @@ private fun AgentConversationCard(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     var showActions by remember { mutableStateOf(false) }
-    val dismissState = rememberSwipeToDismissBoxState(
-        positionalThreshold = { it * 0.35f },
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-            }
-            false
-        }
-    )
-
     if (showActions) {
         AlertDialog(
             onDismissRequest = { showActions = false },
@@ -820,101 +804,93 @@ private fun AgentConversationCard(
         )
     }
 
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            DeleteSwipeBackground()
-        }
-    ) {
-        Box {
-            Card(
+    Box {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = {
+                        showActions = true
+                    }
+                ),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+            ),
+            shape = RoundedCornerShape(24.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+        ) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .combinedClickable(
-                        onClick = onClick,
-                        onLongClick = {
-                            showActions = true
-                        }
-                    ),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-                ),
-                shape = RoundedCornerShape(24.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+                    .background(inboxCardGradient)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(inboxCardGradient)
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                AgentAvatar(agent = agent)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    AgentAvatar(agent = agent)
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                agent.displayName,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            prettyAgentLabel(agent).takeIf { it.isNotBlank() }?.let {
                                 Text(
-                                    agent.displayName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                prettyAgentLabel(agent).takeIf { it.isNotBlank() }?.let {
-                                    Text(
-                                        it,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
                             }
-                            Text(
-                                formatTimestamp(conversation.lastMessageAt),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            StatusBadge(agent.status)
-                            Text(
-                                tmuxSessionLine(agent),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                         Text(
-                            conversation.preview ?: "Waiting for the next message.",
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
+                            formatTimestamp(conversation.lastMessageAt),
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        StatusBadge(agent.status)
+                        Text(
+                            tmuxSessionLine(agent),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        conversation.preview ?: "Waiting for the next message.",
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 14.dp)
-                    .offset(y = (-8).dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                shape = RoundedCornerShape(999.dp)
-            ) {
-                Text(
-                    text = eventTone(agent.status),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
+        }
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 14.dp)
+                .offset(y = (-8).dp),
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            shape = RoundedCornerShape(999.dp)
+        ) {
+            Text(
+                text = eventTone(agent.status),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
         }
     }
 }
@@ -1313,25 +1289,6 @@ private fun SummaryPill(label: String, value: String, accent: Color) {
 }
 
 @Composable
-private fun DeleteSwipeBackground() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color(0xFF6A2630))
-            .padding(horizontal = 20.dp),
-        contentAlignment = Alignment.CenterEnd
-    ) {
-        Text(
-            "Delete",
-            color = Color(0xFFFFD9DD),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-}
-
-@Composable
 private fun EmptyTimelineCard() {
     Card(
         colors = CardDefaults.cardColors(
@@ -1536,12 +1493,28 @@ private fun messageBubbleColors(event: TimelineEvent): Pair<Color, Color> {
 
 private fun prettyAgentLabel(agent: AgentSnapshot): String {
     return when (agent.kind.lowercase()) {
+        "opencode", "open-code", "open_code" -> "opencode"
         "codex", "codex-bridge" -> "codex"
         "copilot", "github-copilot", "github_copilot" -> "copilot"
         "qwen", "qwen-cli", "qwen-coder" -> "qwen"
         "tmux", "tmux-agent" -> "tmux"
         else -> agent.kind.lowercase()
     }
+}
+
+private fun sortAgentProfiles(profiles: List<AgentProfile>): List<AgentProfile> {
+    val preferredOrder = listOf("opencode", "qwen", "codex", "copilot")
+    return profiles.sortedWith(
+        compareBy<AgentProfile> { profile ->
+            preferredOrder.indexOf(profile.id).let { if (it == -1) Int.MAX_VALUE else it }
+        }.thenBy { it.label.lowercase() }
+    )
+}
+
+private fun preferredProfileId(profiles: List<AgentProfile>): String {
+    return profiles.firstOrNull { it.id == "opencode" }?.id
+        ?: profiles.firstOrNull()?.id
+        ?: ""
 }
 
 private fun eventModelLabel(event: TimelineEvent): String? {

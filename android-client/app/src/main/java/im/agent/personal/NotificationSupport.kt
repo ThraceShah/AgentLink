@@ -151,6 +151,7 @@ class AgentNotificationManager(
 
 private fun notificationAgentLabel(agent: AgentSnapshot): String {
     return when (agent.kind.lowercase()) {
+        "opencode", "open-code", "open_code" -> "opencode"
         "codex", "codex-bridge" -> "codex"
         "copilot", "github-copilot", "github_copilot" -> "copilot"
         "qwen", "qwen-cli", "qwen-coder" -> "qwen"

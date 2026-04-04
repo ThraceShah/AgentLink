@@ -11,6 +11,7 @@
 - 示例 agent：默认作为 OpenAI bridge 运行，用于演示 agent 上线、真实对话回执、产物回传、下线
 - Android 原生客户端骨架：Jetpack Compose + OkHttp WebSocket
 - tmux bridge：把 tmux session / pane 接入为可控制 agent
+- tmux bridge 现已支持 `opencode` profile
 - tmux bridge 现已支持 `codex` profile，可直接作为本机 Codex bridge 使用
 - tmux bridge 现已支持 `copilot` 与 `qwen` profile
 - `codex` profile 默认走稳定的 `codex exec` 模式，已完成真实端到端验证
@@ -111,15 +112,17 @@ Android 客户端当前提供：
 - 会话时间线
 - Inbox 概览摘要与更清晰的状态层级
 - 会话删除
-- 首页会话卡片支持左滑删除与长按操作
+- 首页会话卡片支持长按操作
 - 文本指令发送
 - slash command 输入，例如 `/status`、`/retry`、`/stop`
 - 用户消息即时显示
 - 首页会按最后一次真实对话时间倒序排列
 - agent 消息标签按每条消息的实际模型显示
 - 会话卡片与消息气泡支持长按复制
-- 首页新增会话入口，可直接创建新的 tmux-backed Codex 会话
-- 首页新增会话入口现可选择 `codex`、`copilot`、`qwen`
+- 首页新增会话入口，可直接创建新的 tmux-backed agent 会话
+- 首页新增会话入口现可选择 `opencode`、`qwen`、`codex`、`copilot`
+- 新建会话默认优先选中 `opencode`
+- 首页左上角显示当前连接主机的用户名
 - 新建会话时支持指定相对工作目录，默认根目录为 `~/code`
 - 可配置 hub 地址
 - 图片 artifact 预览

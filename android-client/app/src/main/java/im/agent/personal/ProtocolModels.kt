@@ -93,7 +93,8 @@ data class AgentProfilesResponse(
 
 @Serializable
 data class SessionConfigResponse(
-    val workspaceRootHint: String
+    val workspaceRootHint: String,
+    val hostUsername: String
 )
 
 @Serializable

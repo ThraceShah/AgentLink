@@ -3,10 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   parseCodexModel,
   parseCopilotModel,
+  parseOpenCodeModel,
   parseQwenModel
 } from "../src/model-resolver.js";
 
 describe("model resolver parsers", () => {
+  it("parses opencode model from config", () => {
+    expect(parseOpenCodeModel(JSON.stringify({
+      agent: {
+        model: "gpt-5.4-mini"
+      }
+    }))).toBe("gpt-5.4-mini");
+  });
+
   it("parses codex model from config", () => {
     expect(parseCodexModel('model = "gpt-5.4"\n')).toBe("gpt-5.4");
   });

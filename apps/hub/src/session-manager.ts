@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
 import { mkdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile);
 export type AgentProfile = {
   id: string;
   label: string;
-  bridgeProfile: "codex" | "copilot" | "qwen" | "generic";
+  bridgeProfile: "opencode" | "codex" | "copilot" | "qwen" | "generic";
   command?: string;
 };
 
@@ -26,6 +26,22 @@ export class SessionManager {
 
   async listProfiles(): Promise<AgentProfile[]> {
     const profiles: AgentProfile[] = [];
+
+    if (await this.hasCommand("opencode")) {
+      profiles.push({
+        id: "opencode",
+        label: "opencode",
+        bridgeProfile: "opencode"
+      });
+    }
+
+    if (await this.hasCommand("qwen")) {
+      profiles.push({
+        id: "qwen",
+        label: "qwen",
+        bridgeProfile: "qwen"
+      });
+    }
 
     if (await this.hasCommand("codex")) {
       profiles.push({
@@ -43,20 +59,13 @@ export class SessionManager {
       });
     }
 
-    if (await this.hasCommand("qwen")) {
-      profiles.push({
-        id: "qwen",
-        label: "qwen",
-        bridgeProfile: "qwen"
-      });
-    }
-
     return profiles;
   }
 
-  getSessionConfig(): { workspaceRootHint: string } {
+  getSessionConfig(): { workspaceRootHint: string; hostUsername: string } {
     return {
-      workspaceRootHint: formatWorkspaceRootHint(resolveWorkspaceRoot())
+      workspaceRootHint: formatWorkspaceRootHint(resolveWorkspaceRoot()),
+      hostUsername: userInfo().username
     };
   }
 
@@ -96,6 +105,10 @@ export class SessionManager {
   private async hasCommand(command: string): Promise<boolean> {
     try {
       await execFileAsync("sh", ["-lc", `command -v ${shellToken(command)}`], {
+        env: {
+          ...process.env,
+          PATH: buildCommandPath(process.env.PATH)
+        },
         encoding: "utf8"
       });
       return true;
@@ -137,6 +150,7 @@ export class SessionManager {
       cwd: process.cwd(),
       env: {
         ...process.env,
+        PATH: buildCommandPath(process.env.PATH),
         HUB_URL: hubUrl,
         TMUX_SESSION: sessionName,
         TMUX_BRIDGE_PROFILE: profile.bridgeProfile,
@@ -201,7 +215,7 @@ export class SessionManager {
 }
 
 function defaultSessionCommand(profile: AgentProfile): string {
-  if (profile.id === "codex" || profile.id === "copilot" || profile.id === "qwen") {
+  if (profile.id === "opencode" || profile.id === "codex" || profile.id === "copilot" || profile.id === "qwen") {
     return "sh";
   }
   return "sh";
@@ -270,4 +284,10 @@ function formatWorkspaceRootHint(workspaceRoot: string): string {
 
 function shellToken(value: string): string {
   return value.replace(/[^A-Za-z0-9._/-]/g, "");
+}
+
+function buildCommandPath(existingPath?: string): string {
+  const userBins = [path.join(homedir(), ".opencode", "bin")];
+  const segments = [...userBins, ...(existingPath?.split(":") ?? [])].filter(Boolean);
+  return Array.from(new Set(segments)).join(":");
 }

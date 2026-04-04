@@ -110,17 +110,17 @@ TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=interactive TMUX_COMMAND='codex --no-a
 
 其中：
 
-- `GET /api/session-config` 用于返回当前 Hub 的工作区根目录提示，供 Android 新建会话弹窗展示。
+- `GET /api/session-config` 用于返回当前 Hub 的工作区根目录提示和主机用户名，供 Android 新建会话弹窗与首页头部展示。
 - `POST /api/sessions` 现需同时提交 `sessionName`、`profileId` 和 `workdir`。
 - `workdir` 必须是相对于工作区根目录的路径，例如 `test` 或 `tests/first_test`。
 - Hub 默认会将工作区根目录解析为 `~/code`，也可以通过 `SESSION_WORKDIR_ROOT_RELATIVE` 修改为其他相对路径。
-- 当前 Hub 会自动检测本机可用 profile，例如 `codex`、`copilot`、`qwen`。
+- 当前 Hub 会自动检测本机可用 profile，例如 `opencode`、`qwen`、`codex`、`copilot`。
 
 Android 首页的“新增会话”按钮实际会调用这些接口。
 
 典型流程：
 
-1. Hub 返回当前机器可用的 agent profile，例如 `codex`、`copilot`、`qwen`
+1. Hub 返回当前机器可用的 agent profile，例如 `opencode`、`qwen`、`codex`、`copilot`
 2. 用户输入一个会话名，例如 `codex-fix-login`
 3. Hub 创建同名 tmux session
 4. Hub 拉起对应 bridge
@@ -136,13 +136,20 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 - `TMUX_SESSION`：目标 session 名
 - `TMUX_COMMAND`：若指定，则由 bridge 创建并管理该 session
-- `TMUX_BRIDGE_PROFILE`：`generic`、`codex`、`copilot` 或 `qwen`
+- `TMUX_BRIDGE_PROFILE`：`generic`、`opencode`、`codex`、`copilot` 或 `qwen`
 - `TMUX_CODEX_MODE`：`exec` 或 `interactive`
 - `IRIS_TMUX_PANE`：可选，显式绑定某个 pane
 - `TMUX_POLL_MS`：轮询间隔
 - `TMUX_APPROVE_TEXT`：`approve` 命令默认发送内容
 
 ## 当前 provider 支持
+
+### opencode
+
+- 使用 OpenCode CLI 的非交互 `-p` 模式
+- 默认输出格式为 `json`
+- 当前 bridge 会优先读取 JSON 中的文本结果，并把失败信息明确回传到时间线
+- 是否能真正回复，仍取决于本机 OpenCode 的 provider / agent 配置是否完整
 
 ### codex
 

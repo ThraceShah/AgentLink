@@ -58,3 +58,6 @@
 - 修复 Android 通知与会话页不同步问题：用户点通知或切回 App 前台时，会主动从 hub 刷新一次数据，避免通知已到但会话仍停留旧状态。
 - 增强 Android 前台实时链路：新增应用层 `heartbeat` / `heartbeat_ack`、WebSocket 心跳超时检测和指数退避自动重连，重连成功后会主动补一次 bootstrap。
 - 新增 Android 前台同步兜底：即使 WebSocket 处于 `Live` 状态，前台也会保留低频 bootstrap 对账，避免“通知已收到但当前会话迟迟不刷新”的假活场景。
+- 新增 `opencode` provider 接入：Hub 现可检测本机 OpenCode CLI，tmux bridge 已支持 `opencode` 非交互 prompt 模式。
+- 调整 Android 新建会话体验：profile 顺序固定为 `opencode`、`qwen`、`codex`、`copilot`，且默认优先选中 `opencode`。
+- 精简 Android 首页视觉：移除会话卡片左滑删除的红色底板，并把左上角固定文案替换为当前连接主机的用户名。

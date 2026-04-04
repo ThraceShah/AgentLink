@@ -1,4 +1,4 @@
-export type BridgeProfile = "generic" | "codex" | "copilot" | "qwen";
+export type BridgeProfile = "generic" | "opencode" | "codex" | "copilot" | "qwen";
 
 export type PromptHint = {
   eventType: "need_approval" | "need_user_input";

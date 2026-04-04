@@ -444,20 +444,23 @@ function defaultDisplayName(currentSessionName: string): string {
 }
 
 function defaultKind(currentProfile: BridgeProfile): string {
-  if (currentProfile === "codex" || currentProfile === "copilot" || currentProfile === "qwen") {
+  if (currentProfile === "opencode" || currentProfile === "codex" || currentProfile === "copilot" || currentProfile === "qwen") {
     return currentProfile;
   }
   return "tmux";
 }
 
 function defaultAgentId(currentProfile: BridgeProfile, currentSessionName: string): string {
-  if (currentProfile === "codex" || currentProfile === "copilot" || currentProfile === "qwen") {
+  if (currentProfile === "opencode" || currentProfile === "codex" || currentProfile === "copilot" || currentProfile === "qwen") {
     return currentSessionName;
   }
   return `tmux-${currentSessionName}`;
 }
 
 function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: CodexMode): string | undefined {
+  if (currentProfile === "opencode") {
+    return "sh";
+  }
   if (currentProfile === "codex") {
     return currentCodexMode === "exec" ? "sh" : "codex --no-alt-screen";
   }
@@ -468,14 +471,40 @@ function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: 
 }
 
 function isExecProfile(currentProfile: BridgeProfile): boolean {
-  return currentProfile === "copilot" || currentProfile === "qwen" || (currentProfile === "codex" && codexMode === "exec");
+  return currentProfile === "opencode"
+    || currentProfile === "copilot"
+    || currentProfile === "qwen"
+    || (currentProfile === "codex" && codexMode === "exec");
 }
 
 function providerDisplayName(currentProfile: BridgeProfile): string {
-  return currentProfile === "codex" ? "Codex" : currentProfile === "copilot" ? "Copilot" : currentProfile === "qwen" ? "Qwen" : "Agent";
+  return currentProfile === "opencode"
+    ? "OpenCode"
+    : currentProfile === "codex"
+      ? "Codex"
+      : currentProfile === "copilot"
+        ? "Copilot"
+        : currentProfile === "qwen"
+          ? "Qwen"
+          : "Agent";
 }
 
 function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask): string {
+  if (currentProfile === "opencode") {
+    return [
+      `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
+      [
+        task.model ? `OPENCODE_MODEL=${shellQuote(task.model)}` : "",
+        "opencode",
+        "-c .",
+        "-p \"$prompt\"",
+        "-f json",
+        "-q"
+      ].filter(Boolean).join(" ") + ` > ${shellQuote(task.commandOutputPath)} 2>&1`,
+      `printf '%s\\n' $? > ${shellQuote(task.commandStatusPath)}`
+    ].join("; ");
+  }
+
   if (currentProfile === "codex") {
     return [
       [
