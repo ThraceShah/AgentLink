@@ -57,3 +57,4 @@
 - 为适配私网 IM 的后台提醒场景，新增 Android 前台通知服务与后台轮询通道，并补充 Android 13+ 通知权限请求与通知通道创建逻辑。
 - 修复 Android 通知与会话页不同步问题：用户点通知或切回 App 前台时，会主动从 hub 刷新一次数据，避免通知已到但会话仍停留旧状态。
 - 增强 Android 前台实时链路：新增应用层 `heartbeat` / `heartbeat_ack`、WebSocket 心跳超时检测和指数退避自动重连，重连成功后会主动补一次 bootstrap。
+- 新增 Android 前台同步兜底：即使 WebSocket 处于 `Live` 状态，前台也会保留低频 bootstrap 对账，避免“通知已收到但当前会话迟迟不刷新”的假活场景。

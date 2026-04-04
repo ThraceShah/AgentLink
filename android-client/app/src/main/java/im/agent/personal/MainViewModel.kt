@@ -29,6 +29,9 @@ data class MainUiState(
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val connectedRefreshIntervalMs = 3_000L
+    private val disconnectedRefreshIntervalMs = 2_000L
+
     private val configStore = HubConfigStore(application)
     private var repository: HubRepository? = null
     private var pollingJob: Job? = null
@@ -91,10 +94,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _uiState.value = _uiState.value.copy(socketState = socketState)
                         if (socketState == SocketConnectionState.CONNECTED) {
                             refreshFromHub()
-                            stopPolling()
-                        } else {
-                            startPolling()
                         }
+                        startPolling()
                     },
                     onAgentDelta = { agent ->
                         val updated = if (agent.status == "offline") {
@@ -257,11 +258,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         pollingJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                if (_uiState.value.socketState == SocketConnectionState.CONNECTED) {
-                    delay(2000)
-                    continue
-                }
-
                 runCatching {
                     repository?.fetchBootstrap()
                 }.onSuccess { bootstrap ->
@@ -269,9 +265,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         mergeBootstrap(bootstrap)
                         _uiState.value = _uiState.value.copy(connectionError = null)
                     }
+                }.onFailure { error ->
+                    _uiState.value = _uiState.value.copy(
+                        connectionError = error.message ?: "Failed to refresh from hub"
+                    )
                 }
 
-                delay(2000)
+                val delayMs = if (_uiState.value.socketState == SocketConnectionState.CONNECTED) {
+                    connectedRefreshIntervalMs
+                } else {
+                    disconnectedRefreshIntervalMs
+                }
+                delay(delayMs)
             }
         }
     }
