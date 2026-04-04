@@ -778,7 +778,7 @@ private fun EmptyInboxCard() {
         ) {
             Text("No agents online", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text(
-                "Start a demo agent, tmux bridge or command bridge, then reconnect this inbox.",
+                "Start a tmux bridge or command bridge, then reconnect this inbox.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1412,13 +1412,12 @@ private fun timelineSpeaker(event: TimelineEvent, agent: AgentSnapshot): String?
 }
 
 private fun timelineBody(event: TimelineEvent): String? {
-    return event.body?.takeIf { it.isNotBlank() }
-        ?: event.artifact?.caption?.takeIf { it.isNotBlank() }
-        ?: when (event.eventType) {
+        return event.body?.takeIf { it.isNotBlank() }
+            ?: event.artifact?.caption?.takeIf { it.isNotBlank() }
+            ?: when (event.eventType) {
             "task_completed" -> "Completed."
             "task_failed" -> "Failed."
             "need_approval" -> "Waiting for approval."
-            "need_user_input" -> "Waiting for input."
             "agent_started" -> "Online."
             "agent_stopped" -> "Offline."
             else -> null
@@ -1489,7 +1488,6 @@ private fun conversationPreview(event: TimelineEvent): String? {
 
     return when (event.eventType) {
         "need_approval" -> "Waiting for approval."
-        "need_user_input" -> "Waiting for input."
         "image_available" -> "Image preview available."
         "artifact_generated" -> "Artifact available."
         else -> null

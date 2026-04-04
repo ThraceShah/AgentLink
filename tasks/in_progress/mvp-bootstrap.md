@@ -10,7 +10,7 @@
 - [x] 确定推荐架构
 - [x] 输出分阶段实施计划
 - [x] 建立代码骨架
-- [x] 打通 hub + demo agent + command bridge
+- [x] 打通 hub + command bridge
 - [x] 补测试与 demo
 - [x] 完成 Android 客户端骨架
 - [x] 完成 Android hub 地址可配置化

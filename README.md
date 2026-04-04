@@ -7,8 +7,7 @@
 ## 当前 MVP 范围
 
 - 轻量 hub：负责 agent 注册、在线状态、会话时间线和命令转发
-- Node.js agent bridge：负责把示例 agent 或 shell command task 接入 hub
-- 示例 agent：默认作为 OpenAI bridge 运行，用于演示 agent 上线、真实对话回执、产物回传、下线
+- Node.js agent bridge：负责把 shell command task 或 tmux-backed CLI agent 接入 hub
 - Android 原生客户端骨架：Jetpack Compose + OkHttp WebSocket
 - tmux bridge：把 tmux session / pane 接入为可控制 agent
 - tmux bridge 现已支持 `opencode` profile，但仅在本机真实 OpenCode 配置可用时才会显示
@@ -18,7 +17,7 @@
 - `copilot` 与 `qwen` profile 已完成本机端到端验证
 - `opencode` profile 不再伪装复用 `qwen`，而是直接调用本机真实 `opencode` CLI
 - Android 发送消息时支持本地乐观入列，用户消息不再等 agent 回复后才出现
-- `qwen` 与 `copilot` 已接入流式 JSON bridge；`codex` 已统一到相同 JSON bridge 结构，当前仍以最终消息回传为主
+- `qwen` 与 `copilot` 已接入 JSON bridge 解析路径；exec profile 会在 provider 完成后统一向 Android 投递最终消息，避免未完成回复被提前显示
 - Android 首页会按最后一次真实对话时间排序，不再被 heartbeat 保活时间污染
 - Android 会话页中的 agent 消息标签会按消息实际模型显示，例如 `gpt-5.4`、`glm-5`
 - 协议与架构文档
@@ -42,8 +41,7 @@
 ├── apps/
 │   └── hub/
 ├── agents/
-│   ├── command-agent/
-│   └── demo-agent/
+│   └── command-agent/
 ├── docs/
 ├── packages/
 │   ├── protocol/
@@ -72,17 +70,10 @@ npm run dev:hub
 - HTTP: `http://0.0.0.0:8787`
 - WebSocket: `ws://0.0.0.0:8787/ws`
 
-### 3. 启动示例 agent
+### 3. 启动 tmux bridge
 
 ```bash
-npm run dev:demo-agent
-```
-
-若要让示例 agent 返回真实模型结果，还需要在启动前设置：
-
-```bash
-export OPENAI_API_KEY=your_key
-export OPENAI_MODEL=gpt-4.1-mini
+npm run dev:tmux-agent
 ```
 
 ### 4. 运行最小 demo
@@ -189,12 +180,8 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 
 当前仓库优先保证 Node.js 侧和 tmux bridge 的最小闭环可以跑通。
 
-- 已验证：hub、协议、示例 agent、shell command bridge、tmux bridge、基础测试、demo 脚本
+- 已验证：hub、协议、shell command bridge、tmux bridge、基础测试、demo 脚本
 - 未完整验证：Android 原生客户端编译与真机连接
-
-说明：
-
-- 若未配置 `OPENAI_API_KEY`，示例 agent 会明确提示缺失条件，不再伪造回声回复
 
 若要完成 Android 侧自测，需要补充：
 

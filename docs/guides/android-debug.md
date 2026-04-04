@@ -156,7 +156,7 @@ adb shell am force-stop im.agent.link
 adb shell am start \
   -n im.agent.link/.MainActivity \
   --ez debug_probe_enabled true \
-  --es debug_probe_agent_id demo-agent \
+  --es debug_probe_agent_id android-selftest \
   --es debug_probe_command status \
   --el debug_probe_delay_ms 1500
 ```
@@ -167,7 +167,7 @@ adb shell am start \
 adb shell am start \
   -n im.agent.link/.MainActivity \
   --ez debug_probe_enabled true \
-  --es debug_probe_agent_id demo-agent \
+  --es debug_probe_agent_id android-selftest \
   --es debug_probe_command send_text \
   --es debug_probe_text "hello from adb probe" \
   --el debug_probe_delay_ms 1500
@@ -192,7 +192,7 @@ adb shell am start \
 - Android 13+ 首次启动会请求通知权限
 - 仅对 agent 产生的有效消息发通知
 - App 在前台时默认不发系统通知，避免和当前界面重复
-- App 在后台时，`text_output`、`need_approval`、`need_user_input`、`task_failed`、`artifact_generated`、`image_available` 会触发通知
+- App 在后台时，`text_output`、`need_approval`、`task_failed`、`artifact_generated`、`image_available` 会触发通知
 
 在模拟器中可按以下方式自测：
 
@@ -218,7 +218,7 @@ adb shell am start \
   -n im.agent.link/.MainActivity \
   --es debug_hub_origin http://127.0.0.1:8787 \
   --ez debug_probe_enabled true \
-  --es debug_probe_agent_id demo-agent \
+  --es debug_probe_agent_id android-selftest \
   --es debug_probe_command status \
   --el debug_probe_delay_ms 1500
 ```
@@ -274,7 +274,7 @@ adb shell am start \
 
 1. 构建 debug APK
 2. 校验本机模拟器可用
-3. 启动临时 hub 与 demo-agent
+3. 启动临时 hub，并通过 Hub 创建一个真实可用的 tmux-backed session
 4. 安装 APK 到模拟器
 5. 启动 App 并触发一次 `status` 调试探针
 6. 通过 `logcat` 校验命令已被客户端成功发出

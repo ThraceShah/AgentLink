@@ -13,8 +13,8 @@
 
 1. `npm install`
 2. `npm run dev:hub`
-3. `export OPENAI_API_KEY=your_key`（若要验证真实 AI 回复）
-4. `npm run dev:demo-agent`
+3. 准备本机真实可用的 agent CLI，例如 `qwen`、`opencode`、`codex` 或 `copilot`
+4. 启动一个 tmux-backed bridge，例如 `npm run dev:tmux-agent`
 
 ## 运行测试
 

@@ -2,25 +2,6 @@
 
 ## 当前 Bridge 类型
 
-### `demo-agent`
-
-用于演示协议闭环与 UI 形态。
-
-当前默认作为 OpenAI bridge 使用。
-
-关键环境变量：
-
-- `OPENAI_API_KEY`
-- `OPENAI_MODEL`
-- `OPENAI_SYSTEM_PROMPT`
-
-行为说明：
-
-- 当配置了 `OPENAI_API_KEY` 时，`send_text` 会转发给 OpenAI Responses API
-- 当未配置 `OPENAI_API_KEY` 时，agent 会在时间线中明确提示缺失条件
-- `retry` 会重放上一条用户输入
-- `custom=image_demo` 仍可用于生成演示图片 artifact
-
 ### `command-agent`
 
 用于接入 shell command task。
@@ -53,6 +34,7 @@ AGENT_EVENT {"eventType":"need_approval","title":"Review patch","body":"Please a
 - `stop` 对受管 session 执行 `kill-session`，否则发送 `Ctrl-C`
 - `retry` 对受管 session 重新创建会话
 - `status` 优先返回最近一次有效回复，而不是整屏 pane 摘要
+- 项目内不再内置任何直连模型 API 的 demo bridge；真实 AI 对话统一通过本机真实可用的 CLI profile 接入
 
 ## Codex bridge 模式
 
@@ -169,7 +151,7 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 - 使用 Qwen Code CLI 的 `stream-json` 输出模式
 - 当前已完成本机端到端验证
-- 可从流式 JSON 中提取 assistant 文本增量
+- bridge 可从流式 JSON 中提取 assistant 文本增量，但 Android 侧默认只在本轮任务完成后接收最终消息
 
 ## Streaming Bridge 现状
 
@@ -182,12 +164,12 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 ### 2. JSON bridge
 
-- `qwen`：支持流式部分文本更新
-- `copilot`：支持流式部分文本更新
+- `qwen`：bridge 内部支持流式解析，但当前 Android 默认只展示完成后的最终消息
+- `copilot`：bridge 内部支持流式解析，但当前 Android 默认只展示完成后的最终消息
 - `codex`：已统一到 JSON bridge，但当前以最终消息为主
 - `opencode`：当前通过真实 OpenCode CLI 的 `run --format json` 返回最终消息，不再使用其他 provider 伪装
 
-这意味着当前已经具备“先显示用户消息，再持续更新 agent 回复”的基本 IM 体验。
+这意味着当前已经具备“先显示用户消息，再在回复完成后稳定落一条最终 agent 消息”的 IM 体验；bridge 仍会保留对流式输出的内部解析能力，用于提取最终文本与元数据。
 
 注意：
 

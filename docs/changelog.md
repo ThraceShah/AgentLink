@@ -25,7 +25,6 @@
 - 重构 Android 客户端为更接近 IM 的移动端界面，改用单列会话列表、独立会话页、状态胶囊和底部输入区。
 - 完成 Android 客户端第二轮 UI 精修，补充 Inbox 状态摘要、会话卡片强化标签和更清晰的时间线类型标签。
 - 修复 Android 会话默认滚动方向，进入会话页时优先定位到最新消息，并精简时间线中的协议标签展示。
-- 将示例 agent 从回声逻辑升级为 OpenAI bridge；未配置 `OPENAI_API_KEY` 时会明确提示缺失条件。
 - 增强 `tmux-agent` 为第一版 Codex bridge，支持 `codex` profile、增量输出提取、最近有效回复缓存和基础提示识别。
 - 将 `codex` profile 默认切到稳定的 `codex exec` 模式，并完成真实端到端验证：`send_text` 已能返回真实 Codex 回复。
 - 调整 tmux bridge 联系人命名策略：联系人主名称改为 tmux 会话名，会话内对端消息显示真实 agent 名称而非泛化的 `Agent`。
@@ -68,6 +67,10 @@
 - 适配当前机器上的新版 OpenCode CLI：Hub 改为基于真实 `opencode run` 结果做短时缓存探测，tmux bridge 改用 `opencode run ... --format json --dir .` 执行，并补齐 `part.text` 输出解析，使真实 OpenCode 会话可在 Android 中正常出现和回复。
 - 新增会话运行态信息栏：Android 会话页底部现在会显示最近一次有效推理的模型与上下文使用量；tmux bridge 也会尽量从 `opencode`、`qwen`、`codex`、`copilot` 的输出中提取模型和 usage metadata，其中 `opencode` 会优先显示真实基模而不再只显示 provider 名。
 - 收敛会话底部运行态栏：Android 会话页改为在输入框下方使用细窄纯文字栏展示上下文占用，格式为 `已用/窗口`，不再重复显示模型名称，也不再使用胶囊式标签控件。
+- 收敛 exec profile 的最终消息投递时机：`opencode`、`qwen`、`copilot`、`codex exec` 现在会在 provider 真正结束后才向 Android 广播最终 `text_output`，随后切回 `waiting_input`，不再把进行中的 partial 回复提前显示为已完成消息。
+- 修复 Android 后台通知触发过早与 provider 表现不一致的问题：无正文 `need_user_input` 不再单独生成聊天气泡或系统通知，`opencode` 与 `qwen` 现在都会在最终回复完成后仅触发一次消息通知。
+- 删除项目内的 OpenAI 直连示例 agent 与相关入口：不再保留 `demo-agent`、`OPENAI_API_KEY` 相关流程，真实 AI 交互统一通过 `codex`、`copilot`、`qwen`、`opencode` 等 tmux-backed agent profile 完成。
+- 调整 demo 与 Android 标准自测脚本：不再依赖 `demo-agent`，改为通过 Hub 自动创建真实可用的 tmux-backed session 执行探针验证。
 - 清空 Hub 当前运行数据：删除现有会话缓存与时间线，并清理 `data/artifacts/` 下的历史产物，便于重新开始新的验证。
 - 完成 `AgentLink` 品牌调整：Android 应用显示名与项目对外标题统一为 `AgentLink`，并新增根目录 `MIT` 许可协议文件。
 - 完成 Android 包名切换：客户端 `namespace` 与 `applicationId` 已从 `im.agent.personal` 改为 `im.agent.link`，并同步更新 Kotlin 包声明、Android 自测脚本与 adb 调试文档。

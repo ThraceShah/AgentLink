@@ -113,7 +113,6 @@ class AgentNotificationService : Service() {
         return when (event.eventType) {
             "text_output",
             "need_approval",
-            "need_user_input",
             "task_failed",
             "artifact_generated",
             "image_available" -> true

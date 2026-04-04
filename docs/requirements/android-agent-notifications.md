@@ -31,7 +31,6 @@
 - 针对以下事件类型的通知：
   - `text_output`
   - `need_approval`
-  - `need_user_input`
   - `task_failed`
   - `artifact_generated`
   - `image_available`

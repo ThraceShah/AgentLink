@@ -355,7 +355,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         return when (event.eventType) {
             "need_approval" -> "Waiting for approval."
-            "need_user_input" -> "Waiting for input."
             "image_available" -> "Image preview available."
             "artifact_generated" -> "Artifact available."
             else -> null

@@ -23,7 +23,7 @@ MVP 协议采用：
 
 ```json
 {
-  "agentId": "demo-agent",
+  "agentId": "my-agent-session",
   "command": {
     "id": "cmd_001",
     "type": "status",

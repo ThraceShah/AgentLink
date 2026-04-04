@@ -152,9 +152,7 @@ MVP 不做被动局域网发现，统一采用“agent 主动注册到 hub”。
 
 MVP 先实现两层 bridge：
 
-1. `demo-agent`
-   - 用于快速打通注册、消息、命令和 artifact
-2. `command-agent`
+1. `command-agent`
    - 用于把一个 shell command task 接入系统
    - 通过标准输出中的结构化事件前缀扩展
 
@@ -162,7 +160,7 @@ MVP 先实现两层 bridge：
 
 - `tmux-bridge`
 - `codex-bridge`
-- `claude-code-bridge`
+- 更多本机真实可用的 CLI profile bridge
 
 ## 8. Android 特别设计
 

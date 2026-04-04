@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { AgentRuntime } from "../../../packages/sdk/src/index.js";
+import { buildExecCompletionResult, latestExecPreview } from "./exec-delivery.js";
 import { resolveProviderModel } from "./model-resolver.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
 import { parseProviderStream } from "./stream-parser.js";
@@ -274,16 +275,9 @@ async function pollExecTask(): Promise<void> {
   if (streamSnapshot.model && streamSnapshot.model != task.model) {
     task.model = streamSnapshot.model;
   }
-  const candidateText = streamSnapshot.partialText?.trim();
-  if (candidateText && candidateText != task.emittedText) {
-    task.emittedText = candidateText;
+  const candidateText = latestExecPreview(streamSnapshot);
+  if (candidateText) {
     latestReply = candidateText;
-    await runtime.emitEvent({
-      id: task.eventId,
-      eventType: "text_output",
-      body: candidateText,
-      metadata: streamMetadata(task, streamSnapshot)
-    });
   }
 
   let statusText: string | undefined;
@@ -294,33 +288,21 @@ async function pollExecTask(): Promise<void> {
   }
 
   const exitCode = Number(statusText || "1");
-  const finalText = streamSnapshot.finalText?.trim() || "";
-  if (finalText && finalText != task.emittedText) {
-    task.emittedText = finalText;
-    latestReply = finalText;
-    await runtime.emitEvent({
-      id: task.eventId,
-      eventType: "text_output",
-      body: finalText,
-      metadata: streamMetadata(task, streamSnapshot)
-    });
-  }
+  const metadata = streamMetadata(task, streamSnapshot);
+  const completion = buildExecCompletionResult({
+    providerName: providerDisplayName(profile),
+    eventId: task.eventId,
+    emittedText: task.emittedText,
+    latestReply,
+    exitCode,
+    snapshot: streamSnapshot,
+    metadata
+  });
+  task.emittedText = completion.emittedText;
+  latestReply = completion.latestReply;
 
-  if (exitCode === 0) {
-    await runtime.emitEvent({
-      eventType: "task_completed",
-      body: `${providerDisplayName(profile)} finished the request.`,
-      status: "completed",
-      metadata: streamMetadata(task, streamSnapshot)
-    });
-  } else {
-    const fallback = latestReply || `${providerDisplayName(profile)} command failed.`;
-    await runtime.emitEvent({
-      eventType: "task_failed",
-      body: fallback,
-      status: "failed",
-      metadata: streamMetadata(task, streamSnapshot)
-    });
+  for (const event of completion.events) {
+    await runtime.emitEvent(event);
   }
 
   activeExecTask = undefined;

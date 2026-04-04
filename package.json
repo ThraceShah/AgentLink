@@ -11,7 +11,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev:hub": "tsx apps/hub/src/server.ts",
-    "dev:demo-agent": "tsx agents/demo-agent/src/main.ts",
     "dev:command-agent": "tsx agents/command-agent/src/main.ts",
     "dev:tmux-agent": "tsx agents/tmux-agent/src/main.ts",
     "dev:codex-bridge": "TMUX_BRIDGE_PROFILE=codex tsx agents/tmux-agent/src/main.ts",

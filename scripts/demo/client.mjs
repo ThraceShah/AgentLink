@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 
 const socket = new WebSocket("ws://127.0.0.1:8787/ws");
-const targetAgentId = process.env.DEMO_AGENT_ID ?? "demo-agent";
+const targetAgentId = process.env.DEMO_AGENT_ID ?? "tmux-agent";
 let commandedFromBootstrap = false;
 let stopped = false;
 
@@ -50,15 +50,6 @@ socket.on("message", (data) => {
       return;
     }
     stopped = true;
-    socket.send(JSON.stringify({
-      type: "command",
-      agentId: targetAgentId,
-      command: {
-        id: `cmd_${Date.now()}`,
-        type: "custom",
-        text: "image_demo"
-      }
-    }));
     socket.send(JSON.stringify({
       type: "command",
       agentId: targetAgentId,

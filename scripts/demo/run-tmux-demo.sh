@@ -30,8 +30,8 @@ sleep 1
 HUB_URL="ws://127.0.0.1:${HUB_PORT}/ws" \
 TMUX_SESSION="$SESSION_NAME" \
 TMUX_COMMAND="printf 'tmux demo ready\n'; printf 'Approve deployment? [y/N]\n'; read answer; printf 'approval=%s\n' \"\$answer\"" \
-npm run dev:tmux-agent >"$LOG_DIR/tmux-demo-agent.log" 2>&1 &
+npm run dev:tmux-agent >"$LOG_DIR/tmux-bridge-demo.log" 2>&1 &
 TMUX_AGENT_PID=$!
 sleep 1
 
-DEMO_AGENT_ID="tmux-agent" node "$ROOT_DIR/scripts/demo/client.mjs"
+DEMO_AGENT_ID="tmux-${SESSION_NAME}" node "$ROOT_DIR/scripts/demo/client.mjs"

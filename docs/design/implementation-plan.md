@@ -6,8 +6,8 @@
 
 - hub 基础服务
 - 协议定义
-- 示例 agent
 - shell command bridge
+- tmux-backed agent bridge
 - Android 客户端骨架
 - 最小 demo 脚本
 
@@ -23,7 +23,7 @@
 - client 可收到状态消息
 - client 可发命令并收到回执
 - agent 下线状态可更新
-- 至少一种 artifact / image 可展示
+- 至少一种真实会话消息链路可展示
 
 ### 风险
 
