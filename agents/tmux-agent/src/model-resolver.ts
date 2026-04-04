@@ -35,11 +35,6 @@ export async function resolveProviderModel(profile: BridgeProfile): Promise<stri
 }
 
 async function resolveOpenCodeModel(): Promise<string | undefined> {
-  const envModel = process.env.OPENCODE_PROXY_MODEL_ID?.trim();
-  if (envModel) {
-    return `local.${envModel}`;
-  }
-
   const candidatePaths = [
     path.join(process.cwd(), ".opencode.json"),
     path.join(homedir(), ".opencode.json"),

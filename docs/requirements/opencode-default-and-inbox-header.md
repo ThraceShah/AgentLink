@@ -26,7 +26,7 @@
 
 - 本次不改变首页会话卡片按“最后一条真实消息时间”排序的规则。
 - 本次不引入新的团队用户体系或主机切换面板。
-- 本次不强制完成 `opencode` provider 的账号认证或模型配置。
+- 本次不替用户自动完成 `opencode` provider 的账号认证或模型配置。
 - 本次不重做 Android 的整体导航结构。
 
 ## 功能要求
@@ -34,10 +34,10 @@
 ### 1. OpenCode provider
 
 - Hub 应自动检测本机是否存在 `opencode` 命令。
-- 若存在，则在 `GET /api/agent-profiles` 中返回 `opencode` profile。
+- 只有当本机存在 `opencode` 命令且真实配置已完成时，才在 `GET /api/agent-profiles` 中返回 `opencode` profile。
 - tmux bridge 应支持 `TMUX_BRIDGE_PROFILE=opencode`。
 - `send_text` 时应走 OpenCode 官方非交互 prompt 模式。
-- 若当前主机尚未完成 OpenCode provider 配置，bridge 至少应把失败结果明确回传到时间线，而不是静默无响应。
+- 若当前主机尚未完成 OpenCode provider 配置，`opencode` 不应出现在可选列表中；若在运行时配置失效，bridge 至少应把失败结果明确回传到时间线，而不是静默无响应。
 
 ### 2. Profile 顺序与默认值
 
@@ -64,8 +64,8 @@
 
 ## 验收标准
 
-- 本机安装 `opencode` 后，Android 新建会话可看到 `opencode` profile。
-- 新建会话弹窗默认会选中 `opencode`。
+- 本机已完成真实 OpenCode 配置后，Android 新建会话可看到 `opencode` profile。
+- 当且仅当 `opencode` 真实可用时，新建会话弹窗默认会选中 `opencode`。
 - profile 展示顺序符合预期。
 - 首页左上角改为显示当前连接主机用户名。
 - 首页会话卡片不再出现红色删除底板。

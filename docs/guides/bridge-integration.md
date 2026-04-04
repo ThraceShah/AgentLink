@@ -114,13 +114,13 @@ TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=interactive TMUX_COMMAND='codex --no-a
 - `POST /api/sessions` 现需同时提交 `sessionName`、`profileId` 和 `workdir`。
 - `workdir` 必须是相对于工作区根目录的路径，例如 `test` 或 `tests/first_test`。
 - Hub 默认会将工作区根目录解析为 `~/code`，也可以通过 `SESSION_WORKDIR_ROOT_RELATIVE` 修改为其他相对路径。
-- 当前 Hub 会自动检测本机可用 profile，例如 `opencode`、`qwen`、`codex`、`copilot`。
+- 当前 Hub 会自动检测本机真实可用的 profile，例如 `qwen`、`codex`、`copilot`，以及在真实配置完成后的 `opencode`。
 
 Android 首页的“新增会话”按钮实际会调用这些接口。
 
 典型流程：
 
-1. Hub 返回当前机器可用的 agent profile，例如 `opencode`、`qwen`、`codex`、`copilot`
+1. Hub 返回当前机器真实可用的 agent profile，例如 `qwen`、`codex`、`copilot`，以及在真实配置完成后的 `opencode`
 2. 用户输入一个会话名，例如 `codex-fix-login`
 3. Hub 创建同名 tmux session
 4. Hub 拉起对应 bridge
@@ -147,23 +147,11 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 ### opencode
 
 - 使用归档版 OpenCode CLI 的非交互 `-p` 模式
-- bridge 会为每次请求生成隔离的旧版 `.opencode.json` 与临时 HOME
-- 每个 `opencode` 会话都会自动拉起一个会话级本地 proxy
-- 当前默认由该 proxy 调用 `qwen` CLI，并通过 `LOCAL_ENDPOINT` 暴露给 OpenCode
+- 直接调用本机真实 `opencode` CLI
+- 使用用户已有的 OpenCode 全局配置与 provider 认证
+- 只有在真实 OpenCode 配置可用时，Hub 才会返回该 profile
 - 默认输出格式为 `json`
 - bridge 会优先读取 JSON 中的文本结果，并把失败信息明确回传到时间线
-
-### opencode local proxy
-
-- 入口：`apps/opencode-proxy/src/server.ts`
-- 默认监听：`127.0.0.1` 的临时端口
-- 每个会话一个独立实例
-- 关键行为：
-  - `GET /v1/models`
-  - `POST /v1/chat/completions`
-  - 若上游要求 `stream=true`，则返回最小 SSE
-- 当前默认后端：`qwen`
-- 当前默认模型 ID：`local.qwen-cli`
 
 ### codex
 
@@ -197,7 +185,7 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 - `qwen`：支持流式部分文本更新
 - `copilot`：支持流式部分文本更新
 - `codex`：已统一到 JSON bridge，但当前以最终消息为主
-- `opencode`：当前通过本地 proxy + OpenCode CLI 实现最小可用闭环，回复仍以最终消息回传为主
+- `opencode`：当前通过真实 OpenCode CLI 的非交互模式返回最终消息，不再使用其他 provider 伪装
 
 这意味着当前已经具备“先显示用户消息，再持续更新 agent 回复”的基本 IM 体验。
 

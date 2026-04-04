@@ -17,14 +17,10 @@ type ActiveExecTask = {
   promptPath: string;
   outputPath: string;
   statusPath: string;
-  opencodeHomeDir?: string;
-  opencodeConfigPath?: string;
   eventId: string;
   commandPromptPath: string;
   commandOutputPath: string;
   commandStatusPath: string;
-  commandOpencodeHomeDir?: string;
-  commandOpencodeConfigPath?: string;
   emittedText: string;
   model?: string;
 };
@@ -204,24 +200,9 @@ async function createExecTask(prompt: string): Promise<ActiveExecTask> {
   const promptPath = path.join(dir, `${id}.prompt.txt`);
   const outputPath = path.join(dir, `${id}.reply.txt`);
   const statusPath = path.join(dir, `${id}.status.txt`);
-  const opencodeHomeDir = path.join(dir, `${id}.opencode-home`);
-  const opencodeConfigPath = path.join(opencodeHomeDir, ".opencode.json");
   await rm(outputPath, { force: true });
   await rm(statusPath, { force: true });
   await writeFile(promptPath, `${prompt}\n`, "utf8");
-  if (profile === "opencode") {
-    await mkdir(opencodeHomeDir, { recursive: true });
-    await writeFile(opencodeConfigPath, JSON.stringify({
-      data: {
-        directory: ".opencode"
-      },
-      agents: {
-        coder: {
-          model: `local.${process.env.OPENCODE_PROXY_MODEL_ID ?? "qwen-cli"}`
-        }
-      }
-    }, null, 2), "utf8");
-  }
   const targetPane = await resolvePane();
   const panePath = await tmuxPanePath(targetPane);
   return {
@@ -230,18 +211,10 @@ async function createExecTask(prompt: string): Promise<ActiveExecTask> {
     promptPath,
     outputPath,
     statusPath,
-    opencodeHomeDir: profile === "opencode" ? opencodeHomeDir : undefined,
-    opencodeConfigPath: profile === "opencode" ? opencodeConfigPath : undefined,
     eventId: `stream_${id}`,
     commandPromptPath: relativeShellPath(panePath, promptPath),
     commandOutputPath: relativeShellPath(panePath, outputPath),
     commandStatusPath: relativeShellPath(panePath, statusPath),
-    commandOpencodeHomeDir: profile === "opencode"
-      ? relativeShellPath(panePath, opencodeHomeDir)
-      : undefined,
-    commandOpencodeConfigPath: profile === "opencode"
-      ? relativeShellPath(panePath, opencodeConfigPath)
-      : undefined,
     emittedText: "",
     model: await resolveProviderModel(profile)
   };
@@ -518,18 +491,15 @@ function providerDisplayName(currentProfile: BridgeProfile): string {
 
 function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask): string {
   if (currentProfile === "opencode") {
-    const proxyPort = process.env.OPENCODE_PROXY_PORT?.trim();
     const userHome = process.env.IRIS_USER_HOME?.trim();
-    if (!proxyPort || !task.commandOpencodeHomeDir || !task.commandOpencodeConfigPath) {
-      throw new Error("opencode proxy is not configured");
+    if (!userHome) {
+      throw new Error("opencode home is not configured");
     }
     return [
       `prompt=$(cat ${shellQuote(task.commandPromptPath)})`,
       [
-        `HOME=${shellQuote(task.commandOpencodeHomeDir)}`,
-        `LOCAL_ENDPOINT=${shellQuote(`http://127.0.0.1:${proxyPort}/v1`)}`,
-        "LOCAL_API_KEY=local-proxy",
-        shellQuote(userHome ? path.join(userHome, ".opencode", "bin", "opencode") : "opencode"),
+        `HOME=${shellQuote(userHome)}`,
+        shellQuote(path.join(userHome, ".opencode", "bin", "opencode")),
         "-c .",
         "-p \"$prompt\"",
         "-f json",

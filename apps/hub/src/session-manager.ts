@@ -23,12 +23,11 @@ export type CreateSessionInput = {
 
 export class SessionManager {
   private readonly runningBridges = new Map<string, number>();
-  private readonly runningOpencodeProxies = new Map<string, { pid: number; port: number }>();
 
   async listProfiles(): Promise<AgentProfile[]> {
     const profiles: AgentProfile[] = [];
 
-    if (await this.hasCommand("opencode") && await this.hasCommand("qwen")) {
+    if (await this.hasCommand("opencode") && await this.hasUsableOpenCodeConfig()) {
       profiles.push({
         id: "opencode",
         label: "opencode",
@@ -152,10 +151,6 @@ export class SessionManager {
       return;
     }
 
-    const proxyPort = profile.id === "opencode"
-      ? await this.ensureOpencodeProxy(sessionName, workingDirectory)
-      : undefined;
-
     const child = spawn("node_modules/.bin/tsx", ["agents/tmux-agent/src/main.ts"], {
       cwd: process.cwd(),
       env: {
@@ -167,9 +162,7 @@ export class SessionManager {
         AGENT_ID: sessionName,
         AGENT_DISPLAY_NAME: sessionName,
         AGENT_KIND: profile.id,
-        IRIS_USER_HOME: process.env.HOME ?? homedir(),
-        OPENCODE_PROXY_PORT: proxyPort?.toString(),
-        OPENCODE_PROXY_MODEL_ID: process.env.OPENCODE_PROXY_MODEL_ID ?? "qwen-cli"
+        IRIS_USER_HOME: process.env.HOME ?? homedir()
       },
       stdio: "ignore",
       detached: true
@@ -196,16 +189,6 @@ export class SessionManager {
       } catch {
         // Ignore missing process.
       }
-    }
-
-    const proxy = this.runningOpencodeProxies.get(sessionName);
-    if (proxy) {
-      try {
-        process.kill(proxy.pid, "SIGTERM");
-      } catch {
-        // Ignore missing process.
-      }
-      this.runningOpencodeProxies.delete(sessionName);
     }
   }
 
@@ -236,30 +219,12 @@ export class SessionManager {
     }
   }
 
-  private async ensureOpencodeProxy(sessionName: string, workingDirectory: string): Promise<number> {
-    const existing = this.runningOpencodeProxies.get(sessionName);
-    if (existing) {
-      return existing.port;
+  private async hasUsableOpenCodeConfig(): Promise<boolean> {
+    const config = await readOpenCodeConfig();
+    if (!config) {
+      return false;
     }
-
-    const port = await allocateTcpPort();
-    const child = spawn("node_modules/.bin/tsx", ["apps/opencode-proxy/src/server.ts"], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        PATH: buildCommandPath(process.env.PATH),
-        OPENCODE_PROXY_HOST: "127.0.0.1",
-        OPENCODE_PROXY_PORT: port.toString(),
-        OPENCODE_PROXY_WORKDIR: workingDirectory,
-        OPENCODE_PROXY_MODEL_ID: process.env.OPENCODE_PROXY_MODEL_ID ?? "qwen-cli"
-      },
-      stdio: "ignore",
-      detached: true
-    });
-
-    child.unref();
-    this.runningOpencodeProxies.set(sessionName, { pid: child.pid ?? 0, port });
-    return port;
+    return hasUsableOpenCodeSetup(config, process.env);
   }
 }
 
@@ -268,30 +233,6 @@ function defaultSessionCommand(profile: AgentProfile): string {
     return "sh";
   }
   return "sh";
-}
-
-async function allocateTcpPort(): Promise<number> {
-  const net = await import("node:net");
-  return await new Promise<number>((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        server.close();
-        reject(new Error("failed_to_allocate_proxy_port"));
-        return;
-      }
-      const { port } = address;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(port);
-      });
-    });
-  });
 }
 
 function sanitizeSessionName(input: string): string {
@@ -363,6 +304,64 @@ function buildCommandPath(existingPath?: string): string {
   const userBins = [path.join(homedir(), ".opencode", "bin")];
   const segments = [...userBins, ...(existingPath?.split(":") ?? [])].filter(Boolean);
   return Array.from(new Set(segments)).join(":");
+}
+
+async function readOpenCodeConfig(): Promise<string | undefined> {
+  const candidatePaths = [
+    path.join(process.cwd(), ".opencode.json"),
+    path.join(homedir(), ".opencode.json"),
+    path.join(homedir(), ".config", "opencode", ".opencode.json")
+  ];
+
+  for (const configPath of candidatePaths) {
+    try {
+      const content = await readFile(configPath, "utf8");
+      if (content.trim()) {
+        return content;
+      }
+    } catch {
+      // Ignore missing files and continue.
+    }
+  }
+
+  return undefined;
+}
+
+function hasUsableOpenCodeSetup(
+  content: string,
+  env: NodeJS.ProcessEnv
+): boolean {
+  try {
+    const parsed = JSON.parse(content) as {
+      agents?: {
+        coder?: {
+          model?: string;
+        };
+      };
+      providers?: Record<string, unknown>;
+    };
+    const model = parsed.agents?.coder?.model?.trim();
+    if (!model) {
+      return false;
+    }
+
+    const hasProviders = Object.keys(parsed.providers ?? {}).length > 0;
+    if (hasProviders) {
+      return true;
+    }
+
+    const envKeys = [
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GOOGLE_API_KEY",
+      "GEMINI_API_KEY",
+      "AZURE_OPENAI_API_KEY",
+      "LOCAL_ENDPOINT"
+    ];
+    return envKeys.some((key) => env[key]?.trim());
+  } catch {
+    return false;
+  }
 }
 
 function resolveHostUsername(): string {
