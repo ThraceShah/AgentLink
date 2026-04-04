@@ -91,4 +91,25 @@ describe("hub integration", () => {
 
     client.close();
   });
+
+  it("returns session config with host username", async () => {
+    const hub = createHubServer({
+      host: "127.0.0.1",
+      port: 0,
+      dataDir: "temp_docs/test-hub-data"
+    });
+    started.push(hub);
+    const address = await hub.start();
+
+    const response = await fetch(`http://${address.host}:${address.port}/api/session-config`);
+    expect(response.ok).toBe(true);
+
+    const payload = await response.json() as {
+      workspaceRootHint: string;
+      hostUsername: string;
+    };
+
+    expect(payload.workspaceRootHint).toMatch(/\S+/);
+    expect(payload.hostUsername).toMatch(/\S+/);
+  });
 });

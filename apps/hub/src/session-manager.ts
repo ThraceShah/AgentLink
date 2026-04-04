@@ -66,7 +66,7 @@ export class SessionManager {
   getSessionConfig(): { workspaceRootHint: string; hostUsername: string } {
     return {
       workspaceRootHint: formatWorkspaceRootHint(resolveWorkspaceRoot()),
-      hostUsername: userInfo().username
+      hostUsername: resolveHostUsername()
     };
   }
 
@@ -363,4 +363,30 @@ function buildCommandPath(existingPath?: string): string {
   const userBins = [path.join(homedir(), ".opencode", "bin")];
   const segments = [...userBins, ...(existingPath?.split(":") ?? [])].filter(Boolean);
   return Array.from(new Set(segments)).join(":");
+}
+
+function resolveHostUsername(): string {
+  const candidates: Array<string | undefined> = [];
+
+  try {
+    candidates.push(userInfo().username);
+  } catch {
+    // Fall back to environment-derived values below.
+  }
+
+  candidates.push(process.env.USER, process.env.LOGNAME);
+
+  const homeBase = path.basename(homedir());
+  if (homeBase && homeBase !== path.sep) {
+    candidates.push(homeBase);
+  }
+
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return "local";
 }

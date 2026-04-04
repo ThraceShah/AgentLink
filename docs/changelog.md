@@ -63,3 +63,4 @@
 - 精简 Android 首页视觉：移除会话卡片左滑删除的红色底板，并把左上角固定文案替换为当前连接主机的用户名。
 - 打通 `opencode` 最小闭环：新增会话级 `OpenCode local proxy`，默认复用本机 `qwen` CLI，并由 bridge 自动生成旧版 OpenCode 配置与 `LOCAL_ENDPOINT` 环境。
 - 修正 `opencode` bridge 的旧版兼容问题：不再错误读取新版配置路径，不再依赖无效的 `--model` 假设，改为使用隔离 HOME 和 `.opencode.json` 执行。
+- 修复 hub 会话配置中的主机用户名字段缺失问题：`/api/session-config` 现在会稳定返回 `hostUsername`，Android 重连时不再因缺字段报错，左上角用户名也不再回退为 `unknown`。

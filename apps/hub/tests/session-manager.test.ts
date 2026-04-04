@@ -56,4 +56,10 @@ describe("SessionManager", () => {
       }
     ]);
   });
+
+  it("returns a non-empty host username in session config", () => {
+    const manager = new SessionManager();
+
+    expect(manager.getSessionConfig().hostUsername).toMatch(/\S+/);
+  });
 });
