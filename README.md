@@ -126,6 +126,7 @@ Android 客户端当前提供：
 - 调试命令探针，可通过 `adb am start` 自动触发一次命令发送
 - Android 端命令发送的 HTTP 回退通道，提升私网联调稳定性
 - 可选的 Tailscale Serve 接入模式，用于绕过部分设备对 `100.x.x.x:port` 的直连异常
+- 项目级 Android 模拟器自测 skill，可用于标准化 APK 构建、安装、探针验证与交付刷新
 
 当前首页的 `New` 入口会向 hub 请求：
 
@@ -151,6 +152,10 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 
 - `docs/guides/android-debug.md`
 - `docs/guides/private-network.md`
+
+项目内置的 Android 模拟器自测 skill 位于：
+
+- `.agents/skills/android-emulator-selftest/SKILL.md`
 
 ## 文档索引
 

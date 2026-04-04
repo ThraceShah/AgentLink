@@ -214,6 +214,28 @@ adb shell am start \
 
 因此 Android 侧已进入可继续进行 APK 安装与联调的状态，但完整 UI 验收仍待继续执行。
 
+## 标准化模拟器自测
+
+项目已提供项目级 Android 模拟器自测 skill：
+
+- `.agents/skills/android-emulator-selftest/SKILL.md`
+
+默认入口脚本：
+
+```bash
+./.agents/skills/android-emulator-selftest/scripts/run_selftest.sh
+```
+
+该脚本会完成：
+
+1. 构建 debug APK
+2. 校验本机模拟器可用
+3. 启动临时 hub 与 demo-agent
+4. 安装 APK 到模拟器
+5. 启动 App 并触发一次 `status` 调试探针
+6. 通过 `logcat` 校验命令已被客户端成功发出
+7. 刷新 `temp_docs/apk/personal-agent-im-debug.apk`
+
 ## Tailscale Serve 回退模式
 
 当 Android 真机满足以下现象时，优先考虑该模式：
