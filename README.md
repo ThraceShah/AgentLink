@@ -183,6 +183,7 @@ Android 构建链仍需要 Android SDK 才能完整编译验证。相关说明�
 - OpenCode 真实性修正：`docs/requirements/opencode-real-provider.md`
 - OpenCode 新版 CLI 适配：`docs/requirements/opencode-cli-v2-adapter.md`
 - 会话运行态信息栏：`docs/requirements/session-runtime-metrics-bar.md`
+- 会话底部上下文状态栏：`docs/requirements/conversation-footer-context-bar.md`
 
 ## 当前验证状态
 

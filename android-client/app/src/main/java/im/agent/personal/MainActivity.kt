@@ -125,11 +125,8 @@ private data class ConversationCardState(
 )
 
 private data class ConversationRuntimeState(
-    val model: String? = null,
     val contextUsedTokens: Int? = null,
-    val contextWindowTokens: Int? = null,
-    val outputTokens: Int? = null,
-    val provider: String? = null
+    val contextWindowTokens: Int? = null
 )
 
 data class DebugCommandProbe(
@@ -469,12 +466,12 @@ private fun ConversationScreen(
         },
         bottomBar = {
             Column {
-                ConversationRuntimeBar(runtimeState = runtimeState)
                 ConversationComposer(
                     agent = agent,
                     onQuickCommand = onQuickCommand,
                     onSendInstruction = onSendInstruction
                 )
+                ConversationRuntimeBar(runtimeState = runtimeState)
             }
         }
     ) { paddingValues ->
@@ -542,55 +539,20 @@ private fun ConversationScreen(
 private fun ConversationRuntimeBar(runtimeState: ConversationRuntimeState) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f),
-        tonalElevation = 3.dp
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        tonalElevation = 0.dp
     ) {
-        Row(
+        Text(
+            text = formatContextUsage(runtimeState),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            RuntimeMetricPill(
-                label = "Model",
-                value = runtimeState.model ?: "unavailable"
-            )
-            RuntimeMetricPill(
-                label = "Used",
-                value = runtimeState.contextUsedTokens?.let(::formatCompactTokens) ?: "unavailable"
-            )
-            RuntimeMetricPill(
-                label = "Window",
-                value = runtimeState.contextWindowTokens?.let(::formatCompactTokens) ?: "n/a"
-            )
-        }
-    }
-}
-
-@Composable
-private fun RuntimeMetricPill(label: String, value: String) {
-    Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        shape = RoundedCornerShape(999.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+                .navigationBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.92f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -1595,13 +1557,10 @@ private fun deriveConversationRuntimeState(events: List<TimelineEvent>): Convers
         ?: return ConversationRuntimeState()
 
     return ConversationRuntimeState(
-        model = latestMetadata.stringValue("model"),
         contextUsedTokens = latestMetadata.intValue("contextUsedTokens")
             ?: latestMetadata.intValue("totalTokens")
             ?: latestMetadata.intValue("inputTokens"),
-        contextWindowTokens = latestMetadata.intValue("contextWindowTokens"),
-        outputTokens = latestMetadata.intValue("outputTokens"),
-        provider = latestMetadata.stringValue("provider")
+        contextWindowTokens = latestMetadata.intValue("contextWindowTokens")
     )
 }
 
@@ -1616,6 +1575,12 @@ private fun formatCompactTokens(value: Int): String {
         absolute >= 1_000 -> String.format("%.1fk", value / 1_000.0)
         else -> value.toString()
     }
+}
+
+private fun formatContextUsage(runtimeState: ConversationRuntimeState): String {
+    val used = runtimeState.contextUsedTokens?.let(::formatCompactTokens) ?: "NA"
+    val window = runtimeState.contextWindowTokens?.let(::formatCompactTokens) ?: "NA"
+    return "$used/$window"
 }
 
 private fun kotlinx.serialization.json.JsonObject.stringValue(key: String): String? {
