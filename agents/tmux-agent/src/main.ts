@@ -1,4 +1,5 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -9,9 +10,7 @@ import { AgentRuntime } from "../../../packages/sdk/src/index.js";
 import type { SlashCommandNode, TuiMenuSelect } from "../../../packages/protocol/src/index.js";
 import { buildExecCompletionResult, latestExecPreview } from "./exec-delivery.js";
 import { resolveProviderModel } from "./model-resolver.js";
-import {
-  parseOpenCodeInteractiveCapture,
-} from "./opencode-interactive.js";
+import { parseInteractiveCapture } from "./provider-interactive.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
 import { parseProviderStream } from "./stream-parser.js";
 import { buildTmuxKeySendSpec } from "./tmux-keys.js";
@@ -22,8 +21,10 @@ type CodexMode = "exec" | "interactive";
 type ActiveExecTask = {
   id: string;
   prompt: string;
+  workingDir: string;
   promptPath: string;
   outputPath: string;
+  stderrPath: string;
   statusPath: string;
   eventId: string;
   commandPromptPath: string;
@@ -33,13 +34,15 @@ type ActiveExecTask = {
   model?: string;
 };
 
-type ActiveOpenCodeTask = {
+type ActiveInteractiveTask = {
   id: string;
   prompt: string;
   startedAt: number;
   model?: string;
   promptBody?: string;
   sawBusy: boolean;
+  ignoredMenuId?: string;
+  ignoredMenuHash?: string;
 };
 
 const hubUrl = process.env.HUB_URL ?? "ws://127.0.0.1:8787/ws";
@@ -71,19 +74,26 @@ const opencodeNativeCommands: SlashCommandNode[] = [
 ];
 
 const qwenNativeCommands: SlashCommandNode[] = [
-  { id: "model", label: "Model", description: "Switch model", commandType: "send_text" },
-  { id: "hooks", label: "Hooks", description: "Manage hooks", commandType: "send_text" }
+  { id: "model", label: "model", description: "Switch model", commandType: "send_text" },
+  { id: "hooks", label: "hooks", description: "Manage hooks", commandType: "send_text" },
+  { id: "compress", label: "compress", description: "Compress conversation", commandType: "send_text" },
+  { id: "clear", label: "clear", description: "Clear the session", commandType: "send_text" },
+  { id: "help", label: "help", description: "Show slash command help", commandType: "send_text" },
+  { id: "status", label: "status", description: "Show version and status info", commandType: "send_text" }
 ];
 
 const codexNativeCommands: SlashCommandNode[] = [
-  { id: "model", label: "Model", description: "Switch model", commandType: "send_text" }
+  { id: "model", label: "model", description: "Switch model", commandType: "send_text" }
 ];
 
 const copilotNativeCommands: SlashCommandNode[] = [
-  { id: "model", label: "Model", description: "Switch model", commandType: "send_text" },
-  { id: "compact", label: "Compact", description: "Compress context", commandType: "send_text" },
-  { id: "context", label: "Context", description: "View context", commandType: "send_text" },
-  { id: "session", label: "Session", description: "Session management", commandType: "send_text" }
+  { id: "model", label: "model", description: "Switch model", commandType: "send_text" },
+  { id: "compact", label: "compact", description: "Compress context", commandType: "send_text" },
+  { id: "context", label: "context", description: "View context usage", commandType: "send_text" },
+  { id: "session", label: "session", description: "Session management", commandType: "send_text" },
+  { id: "tasks", label: "tasks", description: "View background tasks", commandType: "send_text" },
+  { id: "init", label: "init", description: "Initialize Copilot instructions", commandType: "send_text" },
+  { id: "help", label: "help", description: "Show interactive command help", commandType: "send_text" }
 ];
 
 function buildSlashCommands(currentProfile: BridgeProfile): SlashCommandNode[] {
@@ -92,7 +102,7 @@ function buildSlashCommands(currentProfile: BridgeProfile): SlashCommandNode[] {
     : currentProfile === "qwen"
       ? qwenNativeCommands
       : currentProfile === "codex"
-        ? codexNativeCommands
+        ? (codexMode === "interactive" ? codexNativeCommands : [])
         : currentProfile === "copilot"
           ? copilotNativeCommands
           : [];
@@ -118,7 +128,7 @@ let lastUserPrompt = "";
 let latestReply = "";
 let poller: NodeJS.Timeout | undefined;
 let activeExecTask: ActiveExecTask | undefined;
-let activeOpenCodeTask: ActiveOpenCodeTask | undefined;
+let activeInteractiveTask: ActiveInteractiveTask | undefined;
 let activeMenuId: string | undefined;
 let lastMenuItemsHash: string | undefined;
 let activeMenuSelectedIndex: number | undefined;
@@ -217,7 +227,7 @@ async function capturePane(): Promise<void> {
     const previousCapture = lastCapture;
     lastCapture = capture;
 
-    if (profile !== "opencode" && !isExecProfile(profile)) {
+    if (!isInteractiveProfile(profile) && !isExecProfile(profile)) {
       const parsed = parseCaptureDelta({
         profile,
         previousCapture,
@@ -241,8 +251,8 @@ async function capturePane(): Promise<void> {
     }
   }
 
-  if (profile === "opencode") {
-    await pollOpenCodeInteractiveTask(capture);
+  if (isInteractiveProfile(profile)) {
+    await pollInteractiveTask(capture);
   }
 
   if (isExecProfile(profile)) {
@@ -284,8 +294,10 @@ async function createExecTask(prompt: string): Promise<ActiveExecTask> {
   const id = `task_${Date.now()}`;
   const promptPath = path.join(dir, `${id}.prompt.txt`);
   const outputPath = path.join(dir, `${id}.reply.txt`);
+  const stderrPath = path.join(dir, `${id}.stderr.txt`);
   const statusPath = path.join(dir, `${id}.status.txt`);
   await rm(outputPath, { force: true });
+  await rm(stderrPath, { force: true });
   await rm(statusPath, { force: true });
   await writeFile(promptPath, `${prompt}\n`, "utf8");
   const targetPane = await resolvePane();
@@ -293,8 +305,10 @@ async function createExecTask(prompt: string): Promise<ActiveExecTask> {
   return {
     id,
     prompt,
+    workingDir: panePath,
     promptPath,
     outputPath,
+    stderrPath,
     statusPath,
     eventId: `stream_${id}`,
     commandPromptPath: relativeShellPath(panePath, promptPath),
@@ -338,21 +352,30 @@ async function dispatchExecPrompt(prompt: string): Promise<void> {
     }
   });
 
-  await sendLiteral(command);
+  try {
+    if (profile === "codex" && codexMode === "exec") {
+      await startCodexExecTask(task);
+      return;
+    }
+
+    await sendLiteral(command);
+  } catch (error) {
+    activeExecTask = undefined;
+    throw error;
+  }
 }
 
-async function dispatchOpenCodePrompt(prompt: string): Promise<void> {
-  if (activeOpenCodeTask) {
-    await runtime.sendText(undefined, "OpenCode is still working on the previous request.");
+async function dispatchInteractivePrompt(prompt: string): Promise<void> {
+  if (activeInteractiveTask) {
+    await runtime.sendText(undefined, `${providerDisplayName(profile)} is still working on the previous request.`);
     return;
   }
 
-  const targetPane = await resolvePane();
-  activeOpenCodeTask = {
-    id: `opencode_${Date.now()}`,
+  activeInteractiveTask = {
+    id: `${profile}_${Date.now()}`,
     prompt,
     startedAt: Date.now(),
-    model: await resolveProviderModel("opencode"),
+    model: await resolveProviderModel(profile),
     sawBusy: false
   };
   lastUserPrompt = prompt;
@@ -361,14 +384,26 @@ async function dispatchOpenCodePrompt(prompt: string): Promise<void> {
 
   await runtime.emitEvent({
     eventType: "task_running",
-    body: "OpenCode is working on your request.",
+    body: `${providerDisplayName(profile)} is working on your request.`,
     status: "busy",
     metadata: {
-      model: activeOpenCodeTask.model,
-      provider: "opencode",
+      model: activeInteractiveTask.model,
+      provider: profile,
       interactive: true
     }
   });
+
+  await sendInteractiveText(prompt);
+}
+
+async function sendInteractiveText(prompt: string): Promise<void> {
+  const targetPane = await resolvePane();
+  if (profile === "qwen" && prompt.startsWith("/")) {
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "-l", prompt], { encoding: "utf8" });
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Tab"], { encoding: "utf8" });
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
+    return;
+  }
 
   await sendLiteral(prompt);
 }
@@ -403,6 +438,16 @@ async function pollExecTask(): Promise<void> {
   }
 
   const exitCode = Number(statusText || "1");
+  if (exitCode !== 0 && !latestReply && profile === "codex") {
+    try {
+      const stderrContent = (await readFile(task.stderrPath, "utf8")).trim();
+      if (stderrContent) {
+        latestReply = stderrContent;
+      }
+    } catch {
+      // Ignore missing stderr output.
+    }
+  }
   const metadata = streamMetadata(task, streamSnapshot);
   const completion = buildExecCompletionResult({
     providerName: providerDisplayName(profile),
@@ -424,40 +469,99 @@ async function pollExecTask(): Promise<void> {
   activeExecTask = undefined;
 }
 
-async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
-  const task = activeOpenCodeTask;
+async function startCodexExecTask(task: ActiveExecTask): Promise<void> {
+  const args = [
+    "exec",
+    "--skip-git-repo-check",
+    "-C",
+    ".",
+    "--sandbox",
+    "workspace-write"
+  ];
+  if (task.model) {
+    args.push("-m", task.model);
+  }
+  args.push("--json", "-");
+
+  const outputStream = fs.createWriteStream(task.outputPath, { flags: "a" });
+  const errorStream = fs.createWriteStream(task.stderrPath, { flags: "a" });
+  const child = spawn("codex", args, {
+    cwd: task.workingDir,
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+
+  let finalized = false;
+  const finalize = async (code: number): Promise<void> => {
+    if (finalized) {
+      return;
+    }
+    finalized = true;
+    outputStream.end();
+    errorStream.end();
+    await Promise.all([
+      once(outputStream, "finish"),
+      once(errorStream, "finish")
+    ]);
+    await writeFile(task.statusPath, `${code}\n`, "utf8");
+  };
+
+  child.stdout.on("data", (chunk) => {
+    outputStream.write(chunk);
+  });
+  child.stderr.on("data", (chunk) => {
+    errorStream.write(chunk);
+  });
+  child.once("error", (error) => {
+    errorStream.write(`${error.message}\n`);
+    void finalize(1);
+  });
+  child.once("close", (code) => {
+    void finalize(code ?? 1);
+  });
+
+  child.stdin.end(`${task.prompt}\n`);
+}
+
+async function pollInteractiveTask(capture: string): Promise<void> {
+  const task = activeInteractiveTask;
   if (!task) {
     return;
   }
 
-  const snapshot = parseOpenCodeInteractiveCapture(capture);
+  const snapshot = parseInteractiveCapture(profile, capture);
   if (snapshot.model) {
     task.model = snapshot.model;
   }
+  let ignoredTransientUi = false;
 
   // Emit TUI menu if menu items are detected (highest priority)
   if (snapshot.menuItems && snapshot.menuItems.length > 0) {
     const menuId = snapshot.menuId ?? `menu_${Date.now()}`;
     const itemsHash = snapshot.menuItems.map((item) => item.label).join("|");
-    const menuTitle = snapshot.menuTitle ?? "Select option";
-    const selectedIndex = snapshot.menuItems.findIndex((item) => item.isSelected);
-    activeMenuSelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    if (task.ignoredMenuId === menuId && task.ignoredMenuHash === itemsHash) {
+      // Ignore one stale capture after dismiss/select so ready state can surface.
+      ignoredTransientUi = true;
+    } else {
+      const menuTitle = snapshot.menuTitle ?? "Select option";
+      const selectedIndex = snapshot.menuItems.findIndex((item) => item.isSelected);
+      activeMenuSelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
 
-    // Only emit if menu changed or new menu
-    if (menuId !== activeMenuId || itemsHash !== lastMenuItemsHash) {
-      activeMenuId = menuId;
-      lastMenuItemsHash = itemsHash;
-      latestReply = `${menuTitle}: ${snapshot.menuItems.length} options`;
+      // Only emit if menu changed or new menu
+      if (menuId !== activeMenuId || itemsHash !== lastMenuItemsHash) {
+        activeMenuId = menuId;
+        lastMenuItemsHash = itemsHash;
+        latestReply = `${menuTitle}: ${snapshot.menuItems.length} options`;
 
-      await runtime.emitTuiMenu(menuId, menuTitle, snapshot.menuItems.map((item) => ({
-        id: item.id,
-        label: item.label,
-        description: item.description
-      })));
+        await runtime.emitTuiMenu(menuId, menuTitle, snapshot.menuItems.map((item) => ({
+          id: item.id,
+          label: item.label,
+          description: item.description
+        })));
+      }
+
+      activeInteractiveTask = undefined;
+      return;
     }
-
-    activeOpenCodeTask = undefined;
-    return;
   }
 
   if (snapshot.dialog) {
@@ -466,33 +570,37 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
       snapshot.dialog.body ?? "",
       ...snapshot.dialog.actions.map((item) => `${item.id}:${item.label}`)
     ].join("|");
+    if (task.ignoredMenuId === dialogId && task.ignoredMenuHash === itemsHash) {
+      // Ignore one stale capture after dismiss/select so ready state can surface.
+      ignoredTransientUi = true;
+    } else {
+      if (dialogId !== activeMenuId || itemsHash !== lastMenuItemsHash) {
+        activeMenuId = dialogId;
+        lastMenuItemsHash = itemsHash;
+        activeMenuSelectedIndex = undefined;
+        latestReply = snapshot.promptBody ?? snapshot.dialog.title;
 
-    if (dialogId !== activeMenuId || itemsHash !== lastMenuItemsHash) {
-      activeMenuId = dialogId;
-      lastMenuItemsHash = itemsHash;
-      activeMenuSelectedIndex = undefined;
-      latestReply = snapshot.promptBody ?? snapshot.dialog.title;
+        await runtime.emitTuiMenu(
+          dialogId,
+          snapshot.dialog.title,
+          snapshot.dialog.actions.map((item) => ({
+            id: item.id,
+            label: item.label,
+            description: item.description,
+            isInput: item.isInput,
+            inputPlaceholder: item.inputPlaceholder
+          })),
+          snapshot.dialog.body
+        );
+      }
 
-      await runtime.emitTuiMenu(
-        dialogId,
-        snapshot.dialog.title,
-        snapshot.dialog.actions.map((item) => ({
-          id: item.id,
-          label: item.label,
-          description: item.description,
-          isInput: item.isInput,
-          inputPlaceholder: item.inputPlaceholder
-        })),
-        snapshot.dialog.body
-      );
+      activeInteractiveTask = undefined;
+      return;
     }
-
-    activeOpenCodeTask = undefined;
-    return;
   }
 
   // Only set promptBody if no menu items (menu takes priority)
-  if (snapshot.promptBody && !snapshot.menuItems?.length) {
+  if (!ignoredTransientUi && snapshot.promptBody && !snapshot.menuItems?.length) {
     task.promptBody = snapshot.promptBody;
   }
 
@@ -505,23 +613,23 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
     return;
   }
 
-    if (snapshot.finalText) {
-      latestReply = snapshot.finalText;
-      activeMenuId = undefined;
-      lastMenuItemsHash = undefined;
-      activeMenuSelectedIndex = undefined;
-      await runtime.emitEvent({
+  if (snapshot.finalText) {
+    latestReply = snapshot.finalText;
+    activeMenuId = undefined;
+    lastMenuItemsHash = undefined;
+    activeMenuSelectedIndex = undefined;
+    await runtime.emitEvent({
       id: task.id,
       eventType: "text_output",
       body: snapshot.finalText,
-      metadata: openCodeMetadata(task, snapshot)
+      metadata: interactiveMetadata(task, snapshot)
     });
     await runtime.emitEvent({
       eventType: "need_user_input",
       status: "waiting_input",
-      metadata: openCodeMetadata(task, snapshot)
+      metadata: interactiveMetadata(task, snapshot)
     });
-    activeOpenCodeTask = undefined;
+    activeInteractiveTask = undefined;
     return;
   }
 
@@ -535,18 +643,18 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
       body: task.promptBody,
       status: "waiting_input",
       metadata: {
-        ...openCodeMetadata(task, snapshot),
+        ...interactiveMetadata(task, snapshot),
         inputMode: "tui",
         supportsSpecialKeys: true,
         keyHints: snapshot.keyHints ?? []
       }
     });
-    activeOpenCodeTask = undefined;
+    activeInteractiveTask = undefined;
     return;
   }
 
   if (snapshot.readyForInput) {
-    const completionText = buildCommandCompletionText("OpenCode", task.prompt);
+    const completionText = buildCommandCompletionText(providerDisplayName(profile), task.prompt);
     activeMenuId = undefined;
     lastMenuItemsHash = undefined;
     activeMenuSelectedIndex = undefined;
@@ -556,25 +664,25 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
         id: task.id,
         eventType: "text_output",
         body: completionText,
-        metadata: openCodeMetadata(task, snapshot)
+        metadata: interactiveMetadata(task, snapshot)
       });
     }
     await runtime.emitEvent({
       eventType: "need_user_input",
       status: "waiting_input",
       metadata: {
-        ...openCodeMetadata(task, snapshot),
+        ...interactiveMetadata(task, snapshot),
         inputMode: "tui",
         supportsSpecialKeys: true,
         keyHints: snapshot.keyHints ?? []
       }
     });
-    activeOpenCodeTask = undefined;
+    activeInteractiveTask = undefined;
     return;
   }
 
   if (task.sawBusy) {
-    const completionText = buildCommandCompletionText("OpenCode", task.prompt);
+    const completionText = buildCommandCompletionText(providerDisplayName(profile), task.prompt);
     activeMenuId = undefined;
     lastMenuItemsHash = undefined;
     activeMenuSelectedIndex = undefined;
@@ -584,39 +692,39 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
         id: task.id,
         eventType: "text_output",
         body: completionText,
-        metadata: openCodeMetadata(task, snapshot)
+        metadata: interactiveMetadata(task, snapshot)
       });
     }
     await runtime.emitEvent({
       eventType: "need_user_input",
       status: "waiting_input",
-      metadata: openCodeMetadata(task, snapshot)
+      metadata: interactiveMetadata(task, snapshot)
     });
-    activeOpenCodeTask = undefined;
+    activeInteractiveTask = undefined;
   }
 }
 
 runtime.onCommand(async (command) => {
   const targetPane = await resolvePane();
 
-  if (profile === "opencode") {
+  if (isInteractiveProfile(profile)) {
     switch (command.type) {
       case "status":
         await runtime.sendText(
           undefined,
-          latestReply || (activeOpenCodeTask
-            ? "OpenCode is still working on the current request."
+          latestReply || (activeInteractiveTask
+            ? `${providerDisplayName(profile)} is still working on the current request.`
             : `Attached to ${sessionName} (${targetPane}). Waiting for a prompt.`)
         );
         return;
       case "stop":
         await execFileAsync("tmux", ["send-keys", "-t", targetPane, "C-c"], { encoding: "utf8" });
-        activeOpenCodeTask = undefined;
+        activeInteractiveTask = undefined;
         await runtime.emitEvent({
           eventType: "need_user_input",
           status: "waiting_input",
           metadata: {
-            provider: "opencode",
+            provider: profile,
             interactive: true
           }
         });
@@ -626,7 +734,7 @@ runtime.onCommand(async (command) => {
           await runtime.sendText(undefined, "Nothing to retry yet.");
           return;
         }
-        await dispatchOpenCodePrompt(lastUserPrompt);
+        await dispatchInteractivePrompt(lastUserPrompt);
         return;
       case "approve": {
         const text = command.text ?? approveText;
@@ -639,13 +747,13 @@ runtime.onCommand(async (command) => {
           await runtime.sendText(undefined, "Please send a non-empty instruction.");
           return;
         }
-        await dispatchOpenCodePrompt(command.text.trim());
+        await dispatchInteractivePrompt(command.text.trim());
         return;
       case "send_key":
         try {
           await sendKey(command.args ?? {});
-          if (!activeOpenCodeTask) {
-            beginOpenCodeFollowUp(`Special key: ${JSON.stringify(command.args ?? {})}`);
+          if (!activeInteractiveTask) {
+            beginInteractiveFollowUp(`Special key: ${JSON.stringify(command.args ?? {})}`);
           }
         } catch (error) {
           await runtime.sendText(
@@ -766,20 +874,23 @@ runtime.onTuiMenuSelect(async (select) => {
   }
 
   if (select.itemId === "__cancel__") {
+    const ignoredMenuHash = lastMenuItemsHash;
     await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Escape"], { encoding: "utf8" });
     resetActiveMenuState();
-    beginOpenCodeFollowUp(`Dialog cancel: ${select.menuId}`);
+    beginInteractiveFollowUp(`Dialog cancel: ${select.menuId}`, select.menuId, ignoredMenuHash);
     return;
   }
 
   if (select.itemId === "__confirm__") {
+    const ignoredMenuHash = lastMenuItemsHash;
     await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
     resetActiveMenuState();
-    beginOpenCodeFollowUp(`Dialog confirm: ${select.menuId}`);
+    beginInteractiveFollowUp(`Dialog confirm: ${select.menuId}`, select.menuId, ignoredMenuHash);
     return;
   }
 
   if (select.itemId === "__submit__") {
+    const ignoredMenuHash = lastMenuItemsHash;
     const inputValue = select.inputValue?.trim();
     if (!inputValue) {
       await runtime.sendText(undefined, "Please enter a value before submitting.");
@@ -788,7 +899,7 @@ runtime.onTuiMenuSelect(async (select) => {
     await execFileAsync("tmux", ["send-keys", "-t", targetPane, "-l", inputValue], { encoding: "utf8" });
     await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
     resetActiveMenuState();
-    beginOpenCodeFollowUp(`Dialog submit: ${select.menuId}`);
+    beginInteractiveFollowUp(`Dialog submit: ${select.menuId}`, select.menuId, ignoredMenuHash);
     return;
   }
 
@@ -810,8 +921,9 @@ runtime.onTuiMenuSelect(async (select) => {
   await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
 
   // Clear menu state
+  const ignoredMenuHash = lastMenuItemsHash;
   resetActiveMenuState();
-  beginOpenCodeFollowUp(`Menu selection: ${select.itemId}`);
+  beginInteractiveFollowUp(`Menu selection: ${select.itemId}`, select.menuId, ignoredMenuHash);
 });
 
 runtime.connect()
@@ -869,16 +981,24 @@ function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: 
   if (currentProfile === "codex") {
     return currentCodexMode === "exec" ? "sh" : "codex --no-alt-screen";
   }
-  if (currentProfile === "copilot" || currentProfile === "qwen") {
-    return "sh";
+  if (currentProfile === "copilot") {
+    return "copilot --allow-all";
+  }
+  if (currentProfile === "qwen") {
+    return "qwen";
   }
   return undefined;
 }
 
 function isExecProfile(currentProfile: BridgeProfile): boolean {
-  return currentProfile === "copilot"
+  return currentProfile === "codex" && codexMode === "exec";
+}
+
+function isInteractiveProfile(currentProfile: BridgeProfile): boolean {
+  return currentProfile === "opencode"
+    || currentProfile === "copilot"
     || currentProfile === "qwen"
-    || (currentProfile === "codex" && codexMode === "exec");
+    || (currentProfile === "codex" && codexMode === "interactive");
 }
 
 function providerDisplayName(currentProfile: BridgeProfile): string {
@@ -992,13 +1112,13 @@ function buildOpenCodeInteractiveCommand(): string {
   ].filter(Boolean).join(" ");
 }
 
-function openCodeMetadata(
-  task: ActiveOpenCodeTask,
-  capture: ReturnType<typeof parseOpenCodeInteractiveCapture>
+function interactiveMetadata(
+  task: ActiveInteractiveTask,
+  capture: ReturnType<typeof parseInteractiveCapture>
 ): Record<string, unknown> {
   return {
     model: capture.model ?? task.model,
-    provider: "opencode",
+    provider: profile,
     contextUsedTokens: capture.contextUsedTokens,
     contextWindowTokens: capture.contextWindowTokens,
     interactive: true
@@ -1011,12 +1131,14 @@ function resetActiveMenuState(): void {
   activeMenuSelectedIndex = undefined;
 }
 
-function beginOpenCodeFollowUp(prompt: string): void {
-  activeOpenCodeTask = {
+function beginInteractiveFollowUp(prompt: string, ignoredMenuId?: string, ignoredMenuHash?: string): void {
+  activeInteractiveTask = {
     id: `menu_select_${Date.now()}`,
     prompt,
     startedAt: Date.now(),
-    sawBusy: false
+    sawBusy: false,
+    ignoredMenuId,
+    ignoredMenuHash
   };
 }
 

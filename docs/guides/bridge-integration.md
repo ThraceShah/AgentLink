@@ -141,37 +141,41 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 ### codex
 
-- 使用 `codex exec --json`
-- 已统一到 JSON bridge 路径
-- 当前主要回传最终 agent message
+- 默认仍使用 `codex exec --json`
+- `tmux-agent` 会直接在本地 `spawn()` `codex exec` 子进程，而不是再通过 detached tmux shell 转一层，避免 stdin / JSON 组合在 tmux 内卡住
+- 交互式 `codex --no-alt-screen` 解析器已在 bridge 中预留，但当前机器上的 detached tmux 会话仍会遇到上游 TUI 不出屏的问题，因此 Android 默认不切到该模式
+- `temp_docs/codex_bridge/<session>/` 会保留 prompt、reply、stderr 与 status 文件，便于排查失败或确认最终返回文本
 
 ### copilot
 
-- 使用 GitHub Copilot CLI 的 JSON 输出模式
-- 当前已完成本机端到端验证
-- 可从 JSON 输出中提取 assistant 增量内容
+- 默认使用 GitHub Copilot CLI 的真实交互式 session
+- `/model`、`/session` 等菜单会被 bridge 解析成通用 `tui_menu` dialog 回传给 Android
+- `/context`、`/compact` 这类纯文本结果会在 Copilot 回到输入态后作为最终消息落到 Android
+- Android 侧默认复用与 OpenCode 相同的弹窗与特殊按键链路
 
 ### qwen
 
-- 使用 Qwen Code CLI 的 `stream-json` 输出模式
-- 当前已完成本机端到端验证
-- bridge 可从流式 JSON 中提取 assistant 文本增量，但 Android 侧默认只在本轮任务完成后接收最终消息
+- 默认使用 Qwen Code CLI 的真实交互式 session
+- bridge 会按 Qwen 原生键位处理发送语义：普通消息直接提交，slash command 会先接受命令 suggestion，再进入原生菜单或命令结果
+- `/model` 已适配为 Android 可点击的模型选择 dialog
+- `/status` 等纯文本 framed dialog 也会映射为 Android 通用弹窗，并支持 `Cancel -> Esc`
+- Qwen 回复完成后，bridge 会在原生 prompt 恢复后再向 Android 落最终消息
 
 ## Streaming Bridge 现状
 
-当前 bridge 已支持两类模式：
+当前 bridge 已支持两类主要路径：
 
 ### 1. 乐观用户消息
 
 - Android 在发送消息时会立刻把用户消息插入本地时间线
 - 服务端确认后会按相同事件 ID 去重，不会重复显示
 
-### 2. JSON bridge
+### 2. Provider 输出桥接
 
-- `qwen`：bridge 内部支持流式解析，但当前 Android 默认只展示完成后的最终消息
-- `copilot`：bridge 内部支持流式解析，但当前 Android 默认只展示完成后的最终消息
-- `codex`：已统一到 JSON bridge，但当前以最终消息为主
-- `opencode`：当前已切到真实 OpenCode 交互式 session，bridge 在 provider 返回等待输入状态后再向 Android 落最终消息
+- `opencode`：真实交互式 session，已支持菜单、纯文本 modal、输入型 dialog 与完成通知
+- `copilot`：真实交互式 session，已支持 `/model`、`/session` 菜单和 `/context`、`/compact` 等纯文本结果回传
+- `qwen`：真实交互式 session，已支持普通对话完成态、`/model` 菜单与 `/status` 纯文本 dialog 回传
+- `codex`：默认仍走 JSON exec bridge；交互式分支仅作为显式实验路径保留
 
 这意味着当前已经具备“先显示用户消息，再在回复完成后稳定落一条最终 agent 消息”的 IM 体验；bridge 仍会保留对流式输出的内部解析能力，用于提取最终文本与元数据。
 

@@ -243,7 +243,13 @@ function defaultSessionCommand(profile: AgentProfile): string {
   if (profile.id === "opencode") {
     return buildOpenCodeInteractiveCommand();
   }
-  if (profile.id === "codex" || profile.id === "copilot" || profile.id === "qwen") {
+  if (profile.id === "copilot") {
+    return "copilot --allow-all";
+  }
+  if (profile.id === "qwen") {
+    return "qwen";
+  }
+  if (profile.id === "codex") {
     return "sh";
   }
   return "sh";

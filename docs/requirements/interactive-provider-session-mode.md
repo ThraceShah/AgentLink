@@ -2,21 +2,25 @@
 
 ## 背景
 
-当前项目中的 `qwen`、`codex`、`copilot`、`opencode` 主要通过一次性 exec / prompt-mode 执行链路与 Android 客户端交互。该模式虽然能稳定回传最终消息，但存在以下不可接受的问题：
+项目当前已经拆分为两类 provider 会话路径：
 
-- Android 会话虽然存在，但 provider 侧并非真正的长期交互式会话。
-- 多轮消息之间默认不具备稳定、可依赖的原生 session 连续性。
-- `/model`、`/permission`、`/compact` 等依赖 CLI 交互层的 slash command 在非交互模式下不可用，或只能被错误地当作普通文本 prompt 处理。
-- provider 的权限控制、会话压缩、模型切换、会话恢复等交互式能力无法被原生复用。
-- 即使 provider 提供 `--continue`、`--resume`、`--session-id` 等续会话能力，非交互单轮执行模式仍不等价于真正的交互式 session。
+- `opencode`、`qwen`、`copilot` 已默认进入真实长期交互式 session。
+- `codex` 仍默认走显式降级的 `exec` 路径，但 bridge 已补齐 Android 侧 plain-text-only 交互与完成通知。
+- 差异化保留的原因不是产品选择，而是当前机器上 `codex` 原生 TUI 在 detached tmux 下仍存在上游不出屏限制。
 
 对于当前产品目标，“能否像真实 agent CLI 一样可用”比“改造成本”更重要，因此需要从根本上切换到长期交互式 provider session 模式。
+
+## 当前实现状态（2026-04-06）
+
+- `opencode` 已完成真实交互式 session 与 Android TUI dialog 适配。
+- `qwen` 与 `copilot` 已切到默认真实交互式 session，并开始复用通用 dialog / 完成通知链路。
+- `codex` 仍保留 `exec` 为 Android 默认路径：bridge 已补 interactive 解析分支，但当前机器上的 detached tmux 会话仍存在上游 TUI 不出屏限制，因此暂不把 `codex` 默认切到 interactive。
 
 ## 目标
 
 本次需要实现以下目标：
 
-1. `qwen`、`codex`、`copilot`、`opencode` 四类 provider 默认以长期交互式 session 运行，而不是一次性 exec。
+1. `opencode`、`qwen`、`copilot` 默认以长期交互式 session 运行；`codex` 在本机保持显式文档化的 `exec` 降级路径。
 2. Android 会话与 provider 原生 session 形成稳定映射，消息在同一会话内持续复用原生上下文。
 3. provider 原生支持的 slash command 应在 Android 会话中尽可能按原义生效，而不是被桥接层误当作普通文本。
 4. 保留现有 IM 形态下的时间线、通知和状态能力，但其底层数据源改为交互式 session。
@@ -60,7 +64,7 @@
 ### 1. Provider 启动模式
 
 - `qwen` 默认使用真正的交互式 CLI 会话。
-- `codex` 默认使用真正的交互式 CLI 会话，而不是 `codex exec`。
+- `codex` 默认使用 `codex exec` 降级路径；bridge 通过本地子进程执行并把最终文本、stderr 与完成状态回传 Android。
 - `copilot` 默认使用真正的交互式 CLI 会话，而不是 `copilot -p`。
 - `opencode` 默认使用真正的交互式 CLI / TUI 会话，而不是 `opencode run`。
 - bridge 启动后应等待 provider 进入可交互状态，再向 Hub 暴露为可用会话。
@@ -109,9 +113,9 @@
   - 不应默认暴露为“完整交互能力可用”
   - 必须明确记录阻塞原因
 - 如需保留 exec 模式，必须满足：
-  - 只能作为显式降级选项
+  - 只能作为显式降级选项，或像当前 `codex` 一样被明确记录为受运行环境约束的默认路径
   - 文档中明确说明其不支持原生 slash command 完整能力
-  - Android 默认不优先选择该模式
+  - bridge 仍需把最终正文、失败信息与完成状态稳定回传 Android
 
 ## Provider 范围说明
 
@@ -123,8 +127,9 @@
 
 ### codex
 
-- 目标是接入 Codex CLI 交互模式，而不是 `codex exec`。
-- `resume`、模型切换、权限控制等交互能力应尽量按 Codex 原生行为工作。
+- 长期目标仍是接入 Codex CLI 交互模式，而不是 `codex exec`。
+- 当前实现保持 `codex exec` 为默认 Android 路径，并由 tmux-agent 本地 `spawn()` 子进程执行，避免 detached tmux shell 中的 stdin / JSON 组合卡住。
+- `resume`、模型切换、权限控制等原生交互能力暂不默认暴露给 Android；如需启用实验性 interactive 模式，必须显式设置环境变量。
 
 ### copilot
 
@@ -141,7 +146,7 @@
 - `qwen` 会话中发送 `/model` 不再出现“非交互模式不能用这个命令”。
 - `copilot` 会话中发送 `/compact` 时，Android 能收到该交互命令对应的真实执行结果。
 - 同一会话连续多轮对话时，provider 原生上下文持续生效，而不是每轮重新开始。
-- `codex`、`qwen`、`copilot`、`opencode` 默认配置下均优先进入交互式 session，而不是一次性 exec。
+- `opencode`、`qwen`、`copilot` 默认配置下优先进入交互式 session；`codex` 默认配置下明确保持 `exec` 降级路径，并能稳定回传最终结果。
 - Android 端对无正文状态事件的展示与通知规则保持稳定，不因切到交互式模式而退化。
 - 会话删除后，对应 tmux session、bridge 绑定和 provider 交互资源被同步清理。
 

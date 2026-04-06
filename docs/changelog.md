@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- 将 `qwen`、`copilot` 接入默认真实交互式 session：Hub 新建会话时不再先落到 `sh` 容器，tmux bridge 会直接绑定原生 CLI，会话内普通消息与 slash command 共享同一个长期驻留 session。
+- 新增多 provider 交互式弹窗解析：`qwen` 的 `/model` 与 `copilot` 的 `/model`、`/session` 现可复用 Android 通用 `tui_menu` dialog；`copilot` 的 `/context`、`/compact` 与 `qwen` 的命令完成结果也会在 provider 回到输入态后落为最终消息。
+- 明确 `codex` 的当前兼容边界：bridge 已预留 interactive 解析分支，但由于本机 `codex` TUI 在 detached tmux 下仍存在上游出屏限制，Android 默认继续使用 `codex exec`，文档同步标注为显式降级路径。
+- 修复 `codex exec` 在 detached tmux 场景下可能卡死的问题：tmux bridge 现改为本地 `spawn()` Codex 子进程，并把 stdout、stderr 与退出状态写入 `temp_docs/codex_bridge/<session>/`，Android 端已可稳定收到最终 plain-text 回复。
 - 将 `opencode` 的 `tui_menu` 扩展为通用 TUI dialog：Hub、协议层、tmux bridge 与 Android 现可携带正文内容，并统一复用同一套弹窗通道显示菜单、纯文本提示和输入型对话框。
 - 修复 Android 关闭 TUI 弹窗的回传语义：用户点 `Cancel` 或关闭弹窗时，客户端现在会向 tmux bridge 回传 `__cancel__`，并等价映射为 tmux `Esc`，避免 `/models`、`/status`、`/sessions` 等交互在 provider 侧残留未关闭状态。
 - 补齐 OpenCode 通用弹窗解析：bridge 现可识别 `/status` 等纯文本 modal 与 `Rename Session` 一类输入型 dialog，并支持 `__confirm__` / `__submit__` 动作，把 Android 的 `OK`、`Submit` 和文本输入准确送回原生 TUI。
