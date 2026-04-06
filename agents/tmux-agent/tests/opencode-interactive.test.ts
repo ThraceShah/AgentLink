@@ -42,6 +42,41 @@ describe("opencode interactive helpers", () => {
     expect(result.keyHints).toContain("esc");
   });
 
+  it("detects follow-up variant menus after model selection", () => {
+    const result = parseOpenCodeInteractiveCapture([
+      "              Select variant                                   esc",
+      "",
+      "              Search",
+      "",
+      "   ┃          Default",
+      "   ┃  Ask     high",
+      "   ┃          max",
+      "",
+      "                                                   tab agents  ctrl+p commands"
+    ].join("\n"));
+
+    expect(result.busy).toBe(false);
+    expect(result.menuId).toBe("variant");
+    expect(result.menuTitle).toBe("Select variant");
+    expect(result.menuItems?.map((item) => item.label)).toEqual(["Default", "high", "max"]);
+  });
+
+  it("detects idle prompt after interactive menu selection completes", () => {
+    const result = parseOpenCodeInteractiveCapture([
+      "                     █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█",
+      "   ┃",
+      "   ┃  Ask anything... \"Fix a TODO in the codebase\"",
+      "   ┃",
+      "   ┃  Build  Big Pickle OpenCode Zen",
+      "   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+      "                                                   tab agents  ctrl+p commands"
+    ].join("\n"));
+
+    expect(result.busy).toBe(false);
+    expect(result.readyForInput).toBe(true);
+    expect(result.menuItems).toBeUndefined();
+  });
+
   it("extracts control key hints from footer actions", () => {
     const result = parseOpenCodeInteractiveCapture([
       "Select model",

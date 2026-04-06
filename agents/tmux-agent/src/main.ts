@@ -121,6 +121,7 @@ let activeExecTask: ActiveExecTask | undefined;
 let activeOpenCodeTask: ActiveOpenCodeTask | undefined;
 let activeMenuId: string | undefined;
 let lastMenuItemsHash: string | undefined;
+let activeMenuSelectedIndex: number | undefined;
 
 async function tmux(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, { encoding: "utf8" });
@@ -438,6 +439,8 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
     const menuId = snapshot.menuId ?? `menu_${Date.now()}`;
     const itemsHash = snapshot.menuItems.map((item) => item.label).join("|");
     const menuTitle = snapshot.menuTitle ?? "Select option";
+    const selectedIndex = snapshot.menuItems.findIndex((item) => item.isSelected);
+    activeMenuSelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
 
     // Only emit if menu changed or new menu
     if (menuId !== activeMenuId || itemsHash !== lastMenuItemsHash) {
@@ -470,11 +473,12 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
     return;
   }
 
-  if (snapshot.finalText) {
-    latestReply = snapshot.finalText;
-    activeMenuId = undefined;
-    lastMenuItemsHash = undefined;
-    await runtime.emitEvent({
+    if (snapshot.finalText) {
+      latestReply = snapshot.finalText;
+      activeMenuId = undefined;
+      lastMenuItemsHash = undefined;
+      activeMenuSelectedIndex = undefined;
+      await runtime.emitEvent({
       id: task.id,
       eventType: "text_output",
       body: snapshot.finalText,
@@ -493,6 +497,7 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
     latestReply = task.promptBody;
     activeMenuId = undefined;
     lastMenuItemsHash = undefined;
+    activeMenuSelectedIndex = undefined;
     await runtime.emitEvent({
       eventType: "need_user_input",
       body: task.promptBody,
@@ -508,9 +513,28 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
     return;
   }
 
+  if (snapshot.readyForInput) {
+    activeMenuId = undefined;
+    lastMenuItemsHash = undefined;
+    activeMenuSelectedIndex = undefined;
+    await runtime.emitEvent({
+      eventType: "need_user_input",
+      status: "waiting_input",
+      metadata: {
+        ...openCodeMetadata(task, snapshot),
+        inputMode: "tui",
+        supportsSpecialKeys: true,
+        keyHints: snapshot.keyHints ?? []
+      }
+    });
+    activeOpenCodeTask = undefined;
+    return;
+  }
+
   if (task.sawBusy) {
     activeMenuId = undefined;
     lastMenuItemsHash = undefined;
+    activeMenuSelectedIndex = undefined;
     await runtime.emitEvent({
       eventType: "need_user_input",
       status: "waiting_input",
@@ -693,9 +717,10 @@ runtime.onTuiMenuSelect(async (select) => {
     return;
   }
 
-  // Navigate down to the item (if not first item)
-  for (let step = 0; step < itemIndex; step += 1) {
-    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Down"], { encoding: "utf8" });
+  const currentIndex = activeMenuSelectedIndex ?? 0;
+  const moveKey = itemIndex >= currentIndex ? "Down" : "Up";
+  for (let step = 0; step < Math.abs(itemIndex - currentIndex); step += 1) {
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, moveKey], { encoding: "utf8" });
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
@@ -705,6 +730,7 @@ runtime.onTuiMenuSelect(async (select) => {
   // Clear menu state
   activeMenuId = undefined;
   lastMenuItemsHash = undefined;
+  activeMenuSelectedIndex = undefined;
 
   // Start a new task to capture the result
   activeOpenCodeTask = {

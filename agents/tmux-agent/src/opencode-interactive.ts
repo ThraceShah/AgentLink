@@ -11,6 +11,7 @@ export type OpenCodeInteractiveCapture = {
   contextUsedTokens?: number;
   contextWindowTokens?: number;
   promptBody?: string;
+  readyForInput?: boolean;
   keyHints?: string[];
   finalText?: string;
   menuItems?: TuiMenuItem[];
@@ -47,8 +48,7 @@ export function parseOpenCodeInteractiveCapture(content: string): OpenCodeIntera
   const usage = extractUsage(joined);
   const menuInfo = extractMenuInfo(lines);
 
-  // Detect busy state: esc hint usually means TUI is waiting for input
-  const isBusy = /esc\s*(interrupt|to\s*cancel)?/i.test(joined) || /Select\s+(model|provider|agent)/i.test(joined);
+  const isBusy = /esc\s*(interrupt|to\s*cancel)/i.test(joined);
 
   return {
     busy: isBusy,
@@ -56,6 +56,7 @@ export function parseOpenCodeInteractiveCapture(content: string): OpenCodeIntera
     contextUsedTokens: usage?.used,
     contextWindowTokens: usage?.window,
     promptBody: extractPromptBody(lines),
+    readyForInput: lines.some((line) => /^Ask anything\b/i.test(line.trim())),
     keyHints: extractKeyHints(joined),
     finalText: extractFinalText(lines),
     menuItems: menuInfo?.items,
@@ -337,7 +338,7 @@ function extractMenuInfo(lines: string[]): { id: string; title: string; items: T
     { id: "model", patterns: [/^Select\s+model/i, /^Models\b/i] },
     { id: "agent", patterns: [/^Agents\b/i, /^Select\s+agent/i] },
     { id: "provider", patterns: [/^Select\s+provider/i, /^Provider/i, /^Connect/i] },
-    { id: "variant", patterns: [/^Variants/i] }
+    { id: "variant", patterns: [/^Variants/i, /^Select\s+variant/i] }
   ];
 
   let detectedId: string | undefined;
@@ -406,6 +407,9 @@ function extractMenuInfo(lines: string[]): { id: string; title: string; items: T
     if (/^Popular providers/i.test(line)) {
       break;
     }
+    if (/\btab agents\b/i.test(line) || /\bctrl\+p commands\b/i.test(line)) {
+      break;
+    }
     if (/^commands$/i.test(line)) {
       break;
     }
@@ -453,6 +457,7 @@ function extractMenuInfo(lines: string[]): { id: string; title: string; items: T
 
     // This looks like a menu item
     // Remove leading selector characters and box drawing chars
+    const isSelected = /(?:^|\s)[●▸▶►]\s+\S/.test(line);
     let label = line.replace(/^[▸▶►●*┃│╭╮╰╯╹╺╸]+\s*/, "").trim();
 
     // Handle lines that contain UI elements mixed with menu items
@@ -505,7 +510,8 @@ function extractMenuInfo(lines: string[]): { id: string; title: string; items: T
     items.push({
       id: `item_${items.length}`,
       label,
-      description
+      description,
+      isSelected
     });
 
     // Limit items

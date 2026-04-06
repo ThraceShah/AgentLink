@@ -40,7 +40,11 @@ class HubRepository(
     private val baseHttpUrl: String,
     private val baseWsUrl: String
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
     private val client = OkHttpClient()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var socket: WebSocket? = null
@@ -154,12 +158,22 @@ class HubRepository(
                     return
                 }
                 lastInboundAt = System.currentTimeMillis()
-                val root = json.parseToJsonElement(text).jsonObject
-                when (root["type"]?.jsonPrimitive?.content) {
-                    "agent_delta" -> onAgentDelta?.invoke(json.decodeFromString<AgentDeltaEnvelope>(text).agent)
-                    "timeline_event" -> onTimelineEvent?.invoke(json.decodeFromString<TimelineEnvelope>(text).event)
-                    "tui_menu" -> onTuiMenu?.invoke(json.decodeFromString<TuiMenu>(text))
-                    "heartbeat_ack" -> Log.v(logTag, "Heartbeat acknowledged")
+                try {
+                    val root = json.parseToJsonElement(text).jsonObject
+                    val msgType = root["type"]?.jsonPrimitive?.content
+                    Log.d(logTag, "WebSocket message received: $msgType")
+                    when (msgType) {
+                        "agent_delta" -> onAgentDelta?.invoke(json.decodeFromString<AgentDeltaEnvelope>(text).agent)
+                        "timeline_event" -> onTimelineEvent?.invoke(json.decodeFromString<TimelineEnvelope>(text).event)
+                        "tui_menu" -> {
+                            Log.i(logTag, "TUI menu received: $text")
+                            onTuiMenu?.invoke(json.decodeFromString<TuiMenu>(text))
+                        }
+                        "heartbeat_ack" -> Log.v(logTag, "Heartbeat acknowledged")
+                        else -> Log.d(logTag, "Unhandled message type: $msgType")
+                    }
+                } catch (e: Exception) {
+                    Log.e(logTag, "Failed to parse WebSocket message: ${e.message}", e)
                 }
             }
 

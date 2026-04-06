@@ -269,7 +269,7 @@ private fun AppContent(
     onQuickCommand: (String, String) -> Unit,
     onSendInstruction: (String, String) -> Unit,
     onSendSpecialKey: (String, String, List<String>) -> Unit,
-    onSelectTuiMenuItem: (String) -> Unit,
+    onSelectTuiMenuItem: (String, String?) -> Unit,
     onDismissTuiMenu: () -> Unit
 ) {
     val selectedAgent = state.agents.firstOrNull { it.agentId == state.selectedAgentId }
@@ -278,7 +278,15 @@ private fun AppContent(
     }
 
     // TUI Menu Dialog
-    state.activeTuiMenu?.let { menu ->
+    val activeMenu = state.activeTuiMenu
+    val context = LocalContext.current
+    LaunchedEffect(activeMenu) {
+        if (activeMenu != null) {
+            android.util.Log.i("MainActivity", "Showing TUI menu dialog: ${activeMenu.title}")
+            android.widget.Toast.makeText(context, "TUI Menu: ${activeMenu.title}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    activeMenu?.let { menu ->
         TuiMenuDialog(
             menu = menu,
             onDismiss = onDismissTuiMenu,
@@ -2187,7 +2195,7 @@ private fun ComponentActivity.isDebuggableBuild(): Boolean {
 private fun TuiMenuDialog(
     menu: TuiMenu,
     onDismiss: () -> Unit,
-    onSelect: (String) -> Unit
+    onSelect: (String, String?) -> Unit
 ) {
     var selectedInput by rememberSaveable { mutableStateOf("") }
     val scrollState = rememberScrollState()
@@ -2212,7 +2220,7 @@ private fun TuiMenuDialog(
                                     if (item.isInput == true) {
                                         // For input items, don't select immediately
                                     } else {
-                                        onSelect(item.id)
+                                        onSelect(item.id, null)
                                     }
                                 }
                             ),
@@ -2246,7 +2254,7 @@ private fun TuiMenuDialog(
                                 Button(
                                     onClick = {
                                         if (selectedInput.isNotBlank()) {
-                                            onSelect(item.id)
+                                            onSelect(item.id, selectedInput.trim())
                                         }
                                     },
                                     modifier = Modifier.padding(top = 8.dp),

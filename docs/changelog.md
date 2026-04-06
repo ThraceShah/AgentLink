@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+- 修复 Android 端 OpenCode TUI 菜单实时链路：WebSocket 客户端消息现会保留默认字段并省略空值，`hello` 与 `tui_menu_select` 不再因缺少 `type/role` 或显式 `null` 被 Hub 拒绝，`/models` 等菜单现可在手机端稳定弹出并完成选择回传。
+- 修正 `opencode` 菜单选择定位逻辑：tmux bridge 现在会识别当前高亮项，并按相对位置发送 `Up` / `Down`，避免模型选择器默认焦点不在首项时发生错选。
+- 修复 `opencode` 菜单链路残留状态：tmux bridge 现会把 `Select variant` 解析为 TUI 菜单，并在用户完成后续 variant 选择、回到 `Ask anything...` 输入态时正确结束本轮菜单任务，避免再次输入 `/models` 被误判为“previous request”。
 - 初始化变更日志文档。
 - 完成“个人私有 Agent IM”MVP 的需求建模、方案设计与分阶段实施计划。
 - 建立 monorepo 工程骨架，加入 hub、共享协议、Node SDK、demo agent、command agent 和 Android 原生客户端骨架。
