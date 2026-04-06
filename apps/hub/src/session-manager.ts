@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import path from "node:path";
@@ -239,7 +240,10 @@ export class SessionManager {
 }
 
 function defaultSessionCommand(profile: AgentProfile): string {
-  if (profile.id === "opencode" || profile.id === "codex" || profile.id === "copilot" || profile.id === "qwen") {
+  if (profile.id === "opencode") {
+    return buildOpenCodeInteractiveCommand();
+  }
+  if (profile.id === "codex" || profile.id === "copilot" || profile.id === "qwen") {
     return "sh";
   }
   return "sh";
@@ -318,6 +322,20 @@ function buildCommandPath(existingPath?: string): string {
   const userBins = [path.join(homedir(), ".opencode", "bin")];
   const segments = [...userBins, ...(existingPath?.split(":") ?? [])].filter(Boolean);
   return Array.from(new Set(segments)).join(":");
+}
+
+function buildOpenCodeInteractiveCommand(): string {
+  const userHome = process.env.HOME ?? homedir();
+  const preferredExecutable = path.join(userHome, ".opencode", "bin", "opencode");
+  const executable = fs.existsSync(preferredExecutable) ? preferredExecutable : "opencode";
+  const explicitModel = process.env.TMUX_PROVIDER_MODEL?.trim() || process.env.OPENCODE_MODEL?.trim();
+
+  return [
+    `HOME=${shellQuoteLiteral(userHome)}`,
+    shellQuoteLiteral(executable),
+    ".",
+    explicitModel ? `--model ${shellQuoteLiteral(explicitModel)}` : ""
+  ].filter(Boolean).join(" ");
 }
 
 async function probeOpenCodeAvailability(): Promise<boolean> {

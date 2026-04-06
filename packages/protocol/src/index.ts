@@ -29,6 +29,7 @@ export const commandTypeSchema = z.enum([
   "retry",
   "approve",
   "send_text",
+  "send_key",
   "custom"
 ]);
 
@@ -60,6 +61,28 @@ export const commandSchema = z.object({
   args: z.record(z.string(), z.any()).optional()
 });
 
+export type SlashCommandNode = {
+  id: string;
+  label: string;
+  description?: string;
+  commandType?: CommandType;
+  requiresInput?: boolean;
+  inputPlaceholder?: string;
+  keyValue?: string;
+  children?: SlashCommandNode[];
+};
+
+export const slashCommandNodeSchema: z.ZodType<SlashCommandNode> = z.lazy(() => z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  commandType: commandTypeSchema.optional(),
+  requiresInput: z.boolean().optional(),
+  inputPlaceholder: z.string().optional(),
+  keyValue: z.string().optional(),
+  children: slashCommandNodeSchema.array().optional()
+}));
+
 export const agentSnapshotSchema = z.object({
   agentId: z.string(),
   displayName: z.string(),
@@ -68,6 +91,7 @@ export const agentSnapshotSchema = z.object({
   sessionHint: z.string().optional(),
   capabilities: z.array(z.string()),
   quickCommands: z.array(commandTypeSchema).default([]),
+  slashCommands: z.array(slashCommandNodeSchema).default([]),
   lastSeenAt: z.string(),
   lastMessage: z.string().optional()
 });
@@ -91,7 +115,8 @@ export const agentHelloSchema = z.object({
     kind: z.string(),
     sessionHint: z.string().optional(),
     capabilities: z.array(z.string()).default([]),
-    quickCommands: z.array(commandTypeSchema).default([])
+    quickCommands: z.array(commandTypeSchema).default([]),
+    slashCommands: z.array(slashCommandNodeSchema).default([])
   })
 });
 
@@ -128,13 +153,40 @@ export const artifactUploadSchema = z.object({
   })
 });
 
+export const tuiMenuItemSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  isInput: z.boolean().optional(),
+  inputPlaceholder: z.string().optional()
+});
+
+export const tuiMenuSchema = z.object({
+  type: z.literal("tui_menu"),
+  agentId: z.string(),
+  menuId: z.string(),
+  title: z.string(),
+  items: tuiMenuItemSchema.array(),
+  timestamp: z.string()
+});
+
+export const tuiMenuSelectSchema = z.object({
+  type: z.literal("tui_menu_select"),
+  agentId: z.string(),
+  menuId: z.string(),
+  itemId: z.string(),
+  inputValue: z.string().optional()
+});
+
 export const incomingMessageSchema = z.union([
   clientHelloSchema,
   agentHelloSchema,
   heartbeatSchema,
   agentEventMessageSchema,
   commandMessageSchema,
-  artifactUploadSchema
+  artifactUploadSchema,
+  tuiMenuSchema,
+  tuiMenuSelectSchema
 ]);
 
 export const welcomeMessageSchema = z.object({
@@ -176,12 +228,16 @@ export const outgoingMessageSchema = z.union([
   agentDeltaMessageSchema,
   timelineEventMessageSchema,
   commandMessageSchema,
+  tuiMenuSchema,
   errorMessageSchema
 ]);
 
 export type AgentStatus = z.infer<typeof agentStatusSchema>;
 export type EventType = z.infer<typeof eventTypeSchema>;
 export type CommandType = z.infer<typeof commandTypeSchema>;
+export type TuiMenuItem = z.infer<typeof tuiMenuItemSchema>;
+export type TuiMenu = z.infer<typeof tuiMenuSchema>;
+export type TuiMenuSelect = z.infer<typeof tuiMenuSelectSchema>;
 export type Artifact = z.infer<typeof artifactSchema>;
 export type TimelineEvent = z.infer<typeof timelineEventSchema>;
 export type AgentSnapshot = z.infer<typeof agentSnapshotSchema>;

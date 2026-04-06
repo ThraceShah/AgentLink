@@ -71,6 +71,11 @@
 - 修复 Android 后台通知触发过早与 provider 表现不一致的问题：无正文 `need_user_input` 不再单独生成聊天气泡或系统通知，`opencode` 与 `qwen` 现在都会在最终回复完成后仅触发一次消息通知。
 - 删除项目内的 OpenAI 直连示例 agent 与相关入口：不再保留 `demo-agent`、`OPENAI_API_KEY` 相关流程，真实 AI 交互统一通过 `codex`、`copilot`、`qwen`、`opencode` 等 tmux-backed agent profile 完成。
 - 调整 demo 与 Android 标准自测脚本：不再依赖 `demo-agent`，改为通过 Hub 自动创建真实可用的 tmux-backed session 执行探针验证。
+- 开始按交互式 provider session 方案落地：`opencode` 现已默认切到真实长期交互式 CLI / TUI 会话，不再通过 `opencode run` 一次性执行。
+- 调整 `opencode` bridge 生命周期：Hub 新建 `opencode` 会话时会直接拉起真实交互式 session，Android 后续消息会持续复用同一个原生 OpenCode session。
+- 新增 `opencode` 交互完成态解析：bridge 现在会在 OpenCode 本轮返回等待输入后，再向 Android 落最终消息，并尽量把模型选择器等交互提示转成 `need_user_input`。
+- 新增 `send_key` 特殊按键命令：Hub、tmux bridge 与 Android 客户端现已支持方向键、`Enter`、`Esc`、`Tab`、`Backspace` 与单字符按键的专用发送通道，不再把这类交互误当成普通文本消息。
+- 调整 `opencode` 的 TUI 交互策略：当 OpenCode 进入模型选择等 TUI 菜单时，Android 会直接显示菜单摘要与专用按键控制条，用户可在手机端完成 `↑/↓/Enter` 选择与动态 `Ctrl+<key>` 组合键操作。
 - 清空 Hub 当前运行数据：删除现有会话缓存与时间线，并清理 `data/artifacts/` 下的历史产物，便于重新开始新的验证。
 - 完成 `AgentLink` 品牌调整：Android 应用显示名与项目对外标题统一为 `AgentLink`，并新增根目录 `MIT` 许可协议文件。
 - 完成 Android 包名切换：客户端 `namespace` 与 `applicationId` 已从 `im.agent.personal` 改为 `im.agent.link`，并同步更新 Kotlin 包声明、Android 自测脚本与 adb 调试文档。

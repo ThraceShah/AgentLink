@@ -77,13 +77,26 @@ echo "[6/8] Launch app with adb reverse"
 adb -s "$SERIAL" reverse "tcp:${HUB_PORT}" "tcp:${HUB_PORT}" >/dev/null
 adb -s "$SERIAL" shell am force-stop "$APP_ID" >/dev/null 2>&1 || true
 adb -s "$SERIAL" logcat -c
-adb -s "$SERIAL" shell am start \
-  -n "$MAIN_ACTIVITY" \
-  --es debug_hub_origin "$HUB_HTTP_URL" \
-  --ez debug_probe_enabled true \
-  --es debug_probe_agent_id "$SESSION_NAME" \
-  --es debug_probe_command status \
-  --el debug_probe_delay_ms 1500 >/dev/null
+START_OUTPUT=""
+for _attempt in 1 2 3; do
+  START_OUTPUT="$(
+    adb -s "$SERIAL" shell am start \
+      -n "$MAIN_ACTIVITY" \
+      --es debug_hub_origin "$HUB_HTTP_URL" \
+      --ez debug_probe_enabled true \
+      --es debug_probe_agent_id "$SESSION_NAME" \
+      --es debug_probe_command status \
+      --el debug_probe_delay_ms 1500 2>&1
+  )"
+  if ! grep -q "Error type 3" <<<"$START_OUTPUT"; then
+    break
+  fi
+  sleep 1
+done
+if grep -q "Error type 3" <<<"$START_OUTPUT"; then
+  printf '%s\n' "$START_OUTPUT" >&2
+  exit 1
+fi
 
 echo "[7/8] Verify probe result from logcat"
 sleep 4

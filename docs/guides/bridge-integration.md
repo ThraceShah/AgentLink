@@ -128,12 +128,16 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 ### opencode
 
-- 使用新版 OpenCode CLI 的 `run` 子命令
+- 默认使用真实 OpenCode 交互式 CLI / TUI 会话，而不是 `opencode run`
 - 直接调用本机真实 `opencode` CLI
 - 使用用户已有的 OpenCode 全局配置与 provider 认证
 - 只有在真实 OpenCode 配置可用时，Hub 才会返回该 profile
-- 默认输出格式为 `json`
-- bridge 会优先读取新版 JSON 事件中的 `part.text`，并把失败信息明确回传到时间线
+- Android 发出的文本会直接写入同一个长期驻留的 OpenCode session
+- `/model` 等原生 slash command 会直接交给 OpenCode 自身处理，而不再被当成一次性 prompt 文本
+- bridge 会在交互会话完成当前轮次后，再向 Android 落最终 `text_output`，随后切回 `need_user_input`
+- 对于 OpenCode 在交互过程中弹出的 TUI 选择器，bridge 会把菜单摘要作为 `need_user_input` 回传给 Android，并标记当前输入模式为 `tui`
+- Android 会话输入区会显示专用特殊按键控制条，可直接发送方向键、`Enter`、`Esc`、`Tab`、`Backspace` 与动态组合键
+- 组合键采用“先激活修饰键，再点下一键”的状态机，例如先点 `Ctrl`，再点 `C`，才会真正发送 `Ctrl+C`
 
 ### codex
 
@@ -167,7 +171,7 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 - `qwen`：bridge 内部支持流式解析，但当前 Android 默认只展示完成后的最终消息
 - `copilot`：bridge 内部支持流式解析，但当前 Android 默认只展示完成后的最终消息
 - `codex`：已统一到 JSON bridge，但当前以最终消息为主
-- `opencode`：当前通过真实 OpenCode CLI 的 `run --format json` 返回最终消息，不再使用其他 provider 伪装
+- `opencode`：当前已切到真实 OpenCode 交互式 session，bridge 在 provider 返回等待输入状态后再向 Android 落最终消息
 
 这意味着当前已经具备“先显示用户消息，再在回复完成后稳定落一条最终 agent 消息”的 IM 体验；bridge 仍会保留对流式输出的内部解析能力，用于提取最终文本与元数据。
 

@@ -13,7 +13,41 @@ const runtime = new AgentRuntime({
   displayName: "Command Agent",
   kind: "command-agent",
   capabilities: ["status", "stop", "retry", "approve", "send_text"],
-  quickCommands: ["status", "retry", "stop"]
+  quickCommands: ["status", "retry", "stop"],
+  slashCommands: [
+    {
+      id: "status",
+      label: "Status",
+      description: "Check agent status",
+      commandType: "status"
+    },
+    {
+      id: "stop",
+      label: "Stop",
+      description: "Kill the running process",
+      commandType: "stop"
+    },
+    {
+      id: "retry",
+      label: "Retry",
+      description: "Re-run the command",
+      commandType: "retry"
+    },
+    {
+      id: "send_text",
+      label: "Send",
+      description: "Send text to stdin",
+      commandType: "send_text",
+      requiresInput: true,
+      inputPlaceholder: "Type input..."
+    },
+    {
+      id: "approve",
+      label: "Approve",
+      description: "Acknowledge approval",
+      commandType: "approve"
+    }
+  ]
 });
 
 let child: ChildProcessWithoutNullStreams | undefined;

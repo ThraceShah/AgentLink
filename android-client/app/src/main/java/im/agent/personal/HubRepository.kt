@@ -17,6 +17,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.encodeToString
@@ -53,6 +54,7 @@ class HubRepository(
     private var onConnectionStateChange: ((SocketConnectionState) -> Unit)? = null
     private var onAgentDelta: ((AgentSnapshot) -> Unit)? = null
     private var onTimelineEvent: ((TimelineEvent) -> Unit)? = null
+    private var onTuiMenu: ((TuiMenu) -> Unit)? = null
 
     suspend fun fetchBootstrap(): BootstrapResponse {
         return get("/api/bootstrap")
@@ -91,11 +93,13 @@ class HubRepository(
     fun connect(
         onConnectionStateChange: (SocketConnectionState) -> Unit,
         onAgentDelta: (AgentSnapshot) -> Unit,
-        onTimelineEvent: (TimelineEvent) -> Unit
+        onTimelineEvent: (TimelineEvent) -> Unit,
+        onTuiMenu: (TuiMenu) -> Unit
     ) {
         this.onConnectionStateChange = onConnectionStateChange
         this.onAgentDelta = onAgentDelta
         this.onTimelineEvent = onTimelineEvent
+        this.onTuiMenu = onTuiMenu
         shouldStayConnected = true
         reconnectAttempts = 0
         openSocket()
@@ -154,6 +158,7 @@ class HubRepository(
                 when (root["type"]?.jsonPrimitive?.content) {
                     "agent_delta" -> onAgentDelta?.invoke(json.decodeFromString<AgentDeltaEnvelope>(text).agent)
                     "timeline_event" -> onTimelineEvent?.invoke(json.decodeFromString<TimelineEnvelope>(text).event)
+                    "tui_menu" -> onTuiMenu?.invoke(json.decodeFromString<TuiMenu>(text))
                     "heartbeat_ack" -> Log.v(logTag, "Heartbeat acknowledged")
                 }
             }
@@ -187,17 +192,41 @@ class HubRepository(
         socket = activeSocket
     }
 
-    fun sendCommand(agentId: String, type: String, text: String? = null, commandId: String = UUID.randomUUID().toString()): String {
+    fun sendCommand(
+        agentId: String,
+        type: String,
+        text: String? = null,
+        args: JsonObject? = null,
+        commandId: String = UUID.randomUUID().toString()
+    ): String {
         val payload = CommandEnvelope(
             agentId = agentId,
             command = CommandPayload(
                 id = commandId,
                 type = type,
-                text = text
+                text = text,
+                args = args
             )
         )
         postCommand(payload)
         return commandId
+    }
+
+    fun sendTuiMenuSelect(
+        agentId: String,
+        menuId: String,
+        itemId: String,
+        inputValue: String? = null
+    ) {
+        val payload = TuiMenuSelectEnvelope(
+            agentId = agentId,
+            menuId = menuId,
+            itemId = itemId,
+            inputValue = inputValue
+        )
+        val message = json.encodeToString(payload)
+        socket?.send(message)
+        Log.i(logTag, "TUI menu select sent: $itemId -> $agentId")
     }
 
     private fun startHeartbeat(webSocket: WebSocket) {

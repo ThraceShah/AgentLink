@@ -37,9 +37,10 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
   let activePort = port;
 
   const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${host}:${port}`}`);
+    try {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${host}:${port}`}`);
 
-    if (req.method === "GET" && url.pathname === "/healthz") {
+      if (req.method === "GET" && url.pathname === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ status: "ok", time: nowIso() }));
       return;
@@ -179,14 +180,25 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
     }
 
     res.writeHead(404, { "content-type": "application/json" });
-    res.end(JSON.stringify({ error: "not_found" }));
+      res.end(JSON.stringify({ error: "not_found" }));
+    } catch (error) {
+      console.error("HTTP request handler error", error);
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "internal_server_error" }));
+      }
+    }
   });
 
   const websocketServer = new WebSocketServer({ server, path: "/ws" });
 
   function send(socket: WebSocket, message: unknown): void {
     if (socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(message));
+      try {
+        socket.send(JSON.stringify(message));
+      } catch (error) {
+        console.error("WebSocket send error", error);
+      }
     }
   }
 
@@ -309,7 +321,8 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
         return;
       }
 
-      if (message.type === "hello" && message.role === "client") {
+      try {
+        if (message.type === "hello" && message.role === "client") {
         contexts.set(socket, { role: "client" });
         clientSockets.add(socket);
         send(socket, { type: "welcome", role: "client", serverTime: nowIso() });
@@ -372,6 +385,23 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
         return;
       }
 
+      if (message.type === "tui_menu") {
+        const raw = JSON.parse(String(data)) as {
+          type: string; agentId: string; menuId: string; title: string;
+          items: Array<{ id: string; label: string; description?: string; isInput?: boolean; inputPlaceholder?: string }>;
+          timestamp: string;
+        };
+        broadcastClients({
+          type: "tui_menu",
+          agentId: raw.agentId,
+          menuId: raw.menuId,
+          title: raw.title,
+          items: raw.items,
+          timestamp: raw.timestamp
+        });
+        return;
+      }
+
       if (message.type === "artifact_upload") {
         const event = await persistArtifact(message.agentId, message.upload);
         broadcastTimelineEvent(event);
@@ -390,6 +420,40 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
             message: result.error
           });
         }
+      }
+
+      if (message.type === "tui_menu_select") {
+        const context = contexts.get(socket);
+        if (context?.role !== "client") {
+          send(socket, {
+            type: "error",
+            message: "tui_menu_select only allowed from client"
+          });
+          return;
+        }
+        const agentSocket = agentSockets.get(message.agentId);
+        if (!agentSocket) {
+          send(socket, {
+            type: "error",
+            message: `agent ${message.agentId} not connected`
+          });
+          return;
+        }
+        send(agentSocket, {
+          type: "tui_menu_select",
+          agentId: message.agentId,
+          menuId: message.menuId,
+          itemId: message.itemId,
+          inputValue: message.inputValue
+        });
+        return;
+      }
+      } catch (error) {
+        console.error("WebSocket message handler error", error);
+        send(socket, {
+          type: "error",
+          message: error instanceof Error ? error.message : "internal_error"
+        });
       }
     });
 
@@ -443,6 +507,16 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  // Global error handlers to prevent process crashes
+  process.on("unhandledRejection", (reason, promise) => {
+    console.error("Unhandled rejection at:", promise, "reason:", reason);
+  });
+
+  process.on("uncaughtException", (error) => {
+    console.error("Uncaught exception:", error);
+    // Don't exit immediately - allow graceful handling
+  });
+
   const hub = createHubServer();
   hub.start().then(({ host, port }) => {
     console.log(`hub listening on http://${host}:${port}`);

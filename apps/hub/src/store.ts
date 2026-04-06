@@ -27,6 +27,7 @@ export class HubStore {
       sessionHint: agent.sessionHint,
       capabilities: agent.capabilities,
       quickCommands: agent.quickCommands,
+      slashCommands: agent.slashCommands ?? [],
       status: agent.status ?? previous?.status ?? "online",
       lastSeenAt: agent.lastSeenAt ?? previous?.lastSeenAt ?? nowIso(),
       lastMessage: agent.lastMessage ?? previous?.lastMessage

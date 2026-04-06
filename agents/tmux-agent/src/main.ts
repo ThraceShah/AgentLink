@@ -1,14 +1,20 @@
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { AgentRuntime } from "../../../packages/sdk/src/index.js";
+import type { SlashCommandNode, TuiMenuSelect } from "../../../packages/protocol/src/index.js";
 import { buildExecCompletionResult, latestExecPreview } from "./exec-delivery.js";
 import { resolveProviderModel } from "./model-resolver.js";
+import {
+  parseOpenCodeInteractiveCapture,
+} from "./opencode-interactive.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
 import { parseProviderStream } from "./stream-parser.js";
+import { buildTmuxKeySendSpec } from "./tmux-keys.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -27,6 +33,15 @@ type ActiveExecTask = {
   model?: string;
 };
 
+type ActiveOpenCodeTask = {
+  id: string;
+  prompt: string;
+  startedAt: number;
+  model?: string;
+  promptBody?: string;
+  sawBusy: boolean;
+};
+
 const hubUrl = process.env.HUB_URL ?? "ws://127.0.0.1:8787/ws";
 const profile = (process.env.TMUX_BRIDGE_PROFILE ?? "generic") as BridgeProfile;
 const codexMode = ((process.env.TMUX_CODEX_MODE ?? "exec") as CodexMode);
@@ -35,14 +50,63 @@ const managedCommand = process.argv.slice(2).join(" ") || process.env.TMUX_COMMA
 const pollIntervalMs = Number(process.env.TMUX_POLL_MS ?? 1000);
 const approveText = process.env.TMUX_APPROVE_TEXT ?? "y";
 
+const opencodeNativeCommands: SlashCommandNode[] = [
+  { id: "agents", label: "agents", description: "Switch agent", commandType: "send_text" },
+  { id: "code", label: "code", description: "Code mode", commandType: "send_text" },
+  { id: "connect", label: "connect", description: "Connect provider", commandType: "send_text" },
+  { id: "editor", label: "editor", description: "Open editor", commandType: "send_text" },
+  { id: "exit", label: "exit", description: "Exit the app", commandType: "send_text" },
+  { id: "help", label: "help", description: "Help", commandType: "send_text" },
+  { id: "init", label: "init", description: "Guided AGENTS.md setup", commandType: "send_text" },
+  { id: "mcps", label: "mcps", description: "Toggle MCPs", commandType: "send_text" },
+  { id: "models", label: "models", description: "Switch model", commandType: "send_text" },
+  { id: "new", label: "new", description: "New session", commandType: "send_text" },
+  { id: "project", label: "project", description: "Project settings", commandType: "send_text" },
+  { id: "review", label: "review", description: "Review changes (commit|branch|pr)", commandType: "send_text" },
+  { id: "sessions", label: "sessions", description: "Manage sessions", commandType: "send_text" },
+  { id: "skills", label: "skills", description: "Manage skills", commandType: "send_text" },
+  { id: "status", label: "status", description: "View status", commandType: "send_text" },
+  { id: "themes", label: "themes", description: "Switch theme", commandType: "send_text" },
+  { id: "tui", label: "tui", description: "TUI settings", commandType: "send_text" }
+];
+
+const qwenNativeCommands: SlashCommandNode[] = [
+  { id: "model", label: "Model", description: "Switch model", commandType: "send_text" },
+  { id: "hooks", label: "Hooks", description: "Manage hooks", commandType: "send_text" }
+];
+
+const codexNativeCommands: SlashCommandNode[] = [
+  { id: "model", label: "Model", description: "Switch model", commandType: "send_text" }
+];
+
+const copilotNativeCommands: SlashCommandNode[] = [
+  { id: "model", label: "Model", description: "Switch model", commandType: "send_text" },
+  { id: "compact", label: "Compact", description: "Compress context", commandType: "send_text" },
+  { id: "context", label: "Context", description: "View context", commandType: "send_text" },
+  { id: "session", label: "Session", description: "Session management", commandType: "send_text" }
+];
+
+function buildSlashCommands(currentProfile: BridgeProfile): SlashCommandNode[] {
+  return currentProfile === "opencode"
+    ? opencodeNativeCommands
+    : currentProfile === "qwen"
+      ? qwenNativeCommands
+      : currentProfile === "codex"
+        ? codexNativeCommands
+        : currentProfile === "copilot"
+          ? copilotNativeCommands
+          : [];
+}
+
 const runtime = new AgentRuntime({
   hubUrl,
   agentId: process.env.AGENT_ID ?? defaultAgentId(profile, sessionName),
   displayName: process.env.AGENT_DISPLAY_NAME ?? defaultDisplayName(sessionName),
   kind: process.env.AGENT_KIND ?? defaultKind(profile),
   sessionHint: sessionName,
-  capabilities: ["status", "stop", "retry", "approve", "send_text"],
-  quickCommands: ["status", "approve", "retry", "stop"]
+  capabilities: ["status", "stop", "retry", "approve", "send_text", "send_key"],
+  quickCommands: ["status", "approve", "retry", "stop"],
+  slashCommands: buildSlashCommands(profile)
 });
 
 let paneId = process.env.IRIS_TMUX_PANE;
@@ -54,6 +118,9 @@ let lastUserPrompt = "";
 let latestReply = "";
 let poller: NodeJS.Timeout | undefined;
 let activeExecTask: ActiveExecTask | undefined;
+let activeOpenCodeTask: ActiveOpenCodeTask | undefined;
+let activeMenuId: string | undefined;
+let lastMenuItemsHash: string | undefined;
 
 async function tmux(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, { encoding: "utf8" });
@@ -92,6 +159,17 @@ async function sendLiteral(text: string): Promise<void> {
   const targetPane = await resolvePane();
   await execFileAsync("tmux", ["send-keys", "-t", targetPane, "-l", text], { encoding: "utf8" });
   await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
+}
+
+async function sendKey(input: { key?: unknown; modifiers?: unknown }): Promise<void> {
+  const targetPane = await resolvePane();
+  const spec = buildTmuxKeySendSpec(input);
+  if (spec.mode === "literal") {
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "-l", spec.value], { encoding: "utf8" });
+    return;
+  }
+
+  await execFileAsync("tmux", ["send-keys", "-t", targetPane, spec.value], { encoding: "utf8" });
 }
 
 async function tmuxPanePath(targetPane: string): Promise<string> {
@@ -138,7 +216,7 @@ async function capturePane(): Promise<void> {
     const previousCapture = lastCapture;
     lastCapture = capture;
 
-    if (!isExecProfile(profile)) {
+    if (profile !== "opencode" && !isExecProfile(profile)) {
       const parsed = parseCaptureDelta({
         profile,
         previousCapture,
@@ -160,6 +238,10 @@ async function capturePane(): Promise<void> {
         await emitPromptHint(parsed.promptHint.body, parsed.promptHint.eventType);
       }
     }
+  }
+
+  if (profile === "opencode") {
+    await pollOpenCodeInteractiveTask(capture);
   }
 
   if (isExecProfile(profile)) {
@@ -258,6 +340,38 @@ async function dispatchExecPrompt(prompt: string): Promise<void> {
   await sendLiteral(command);
 }
 
+async function dispatchOpenCodePrompt(prompt: string): Promise<void> {
+  if (activeOpenCodeTask) {
+    await runtime.sendText(undefined, "OpenCode is still working on the previous request.");
+    return;
+  }
+
+  const targetPane = await resolvePane();
+  activeOpenCodeTask = {
+    id: `opencode_${Date.now()}`,
+    prompt,
+    startedAt: Date.now(),
+    model: await resolveProviderModel("opencode"),
+    sawBusy: false
+  };
+  lastUserPrompt = prompt;
+  lastSentText = prompt;
+  lastPromptKey = "";
+
+  await runtime.emitEvent({
+    eventType: "task_running",
+    body: "OpenCode is working on your request.",
+    status: "busy",
+    metadata: {
+      model: activeOpenCodeTask.model,
+      provider: "opencode",
+      interactive: true
+    }
+  });
+
+  await sendLiteral(prompt);
+}
+
 async function pollExecTask(): Promise<void> {
   const task = activeExecTask;
   if (!task) {
@@ -308,8 +422,161 @@ async function pollExecTask(): Promise<void> {
   activeExecTask = undefined;
 }
 
+async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
+  const task = activeOpenCodeTask;
+  if (!task) {
+    return;
+  }
+
+  const snapshot = parseOpenCodeInteractiveCapture(capture);
+  if (snapshot.model) {
+    task.model = snapshot.model;
+  }
+
+  // Emit TUI menu if menu items are detected (highest priority)
+  if (snapshot.menuItems && snapshot.menuItems.length > 0) {
+    const menuId = snapshot.menuId ?? `menu_${Date.now()}`;
+    const itemsHash = snapshot.menuItems.map((item) => item.label).join("|");
+    const menuTitle = snapshot.menuTitle ?? "Select option";
+
+    // Only emit if menu changed or new menu
+    if (menuId !== activeMenuId || itemsHash !== lastMenuItemsHash) {
+      activeMenuId = menuId;
+      lastMenuItemsHash = itemsHash;
+      latestReply = `${menuTitle}: ${snapshot.menuItems.length} options`;
+
+      await runtime.emitTuiMenu(menuId, menuTitle, snapshot.menuItems.map((item) => ({
+        id: item.id,
+        label: item.label,
+        description: item.description
+      })));
+    }
+
+    activeOpenCodeTask = undefined;
+    return;
+  }
+
+  // Only set promptBody if no menu items (menu takes priority)
+  if (snapshot.promptBody && !snapshot.menuItems?.length) {
+    task.promptBody = snapshot.promptBody;
+  }
+
+  if (snapshot.busy) {
+    task.sawBusy = true;
+    return;
+  }
+
+  if (!task.sawBusy && Date.now() - task.startedAt < 800) {
+    return;
+  }
+
+  if (snapshot.finalText) {
+    latestReply = snapshot.finalText;
+    activeMenuId = undefined;
+    lastMenuItemsHash = undefined;
+    await runtime.emitEvent({
+      id: task.id,
+      eventType: "text_output",
+      body: snapshot.finalText,
+      metadata: openCodeMetadata(task, snapshot)
+    });
+    await runtime.emitEvent({
+      eventType: "need_user_input",
+      status: "waiting_input",
+      metadata: openCodeMetadata(task, snapshot)
+    });
+    activeOpenCodeTask = undefined;
+    return;
+  }
+
+  if (task.promptBody) {
+    latestReply = task.promptBody;
+    activeMenuId = undefined;
+    lastMenuItemsHash = undefined;
+    await runtime.emitEvent({
+      eventType: "need_user_input",
+      body: task.promptBody,
+      status: "waiting_input",
+      metadata: {
+        ...openCodeMetadata(task, snapshot),
+        inputMode: "tui",
+        supportsSpecialKeys: true,
+        keyHints: snapshot.keyHints ?? []
+      }
+    });
+    activeOpenCodeTask = undefined;
+    return;
+  }
+
+  if (task.sawBusy) {
+    activeMenuId = undefined;
+    lastMenuItemsHash = undefined;
+    await runtime.emitEvent({
+      eventType: "need_user_input",
+      status: "waiting_input",
+      metadata: openCodeMetadata(task, snapshot)
+    });
+    activeOpenCodeTask = undefined;
+  }
+}
+
 runtime.onCommand(async (command) => {
   const targetPane = await resolvePane();
+
+  if (profile === "opencode") {
+    switch (command.type) {
+      case "status":
+        await runtime.sendText(
+          undefined,
+          latestReply || (activeOpenCodeTask
+            ? "OpenCode is still working on the current request."
+            : `Attached to ${sessionName} (${targetPane}). Waiting for a prompt.`)
+        );
+        return;
+      case "stop":
+        await execFileAsync("tmux", ["send-keys", "-t", targetPane, "C-c"], { encoding: "utf8" });
+        activeOpenCodeTask = undefined;
+        await runtime.emitEvent({
+          eventType: "need_user_input",
+          status: "waiting_input",
+          metadata: {
+            provider: "opencode",
+            interactive: true
+          }
+        });
+        return;
+      case "retry":
+        if (!lastUserPrompt) {
+          await runtime.sendText(undefined, "Nothing to retry yet.");
+          return;
+        }
+        await dispatchOpenCodePrompt(lastUserPrompt);
+        return;
+      case "approve": {
+        const text = command.text ?? approveText;
+        lastSentText = text;
+        await sendLiteral(text);
+        return;
+      }
+      case "send_text":
+        if (!command.text?.trim()) {
+          await runtime.sendText(undefined, "Please send a non-empty instruction.");
+          return;
+        }
+        await dispatchOpenCodePrompt(command.text.trim());
+        return;
+      case "send_key":
+        try {
+          await sendKey(command.args ?? {});
+        } catch (error) {
+          await runtime.sendText(
+            undefined,
+            error instanceof Error ? error.message : "Failed to send special key."
+          );
+        }
+        return;
+    }
+  }
 
   if (isExecProfile(profile)) {
     switch (command.type) {
@@ -345,6 +612,16 @@ runtime.onCommand(async (command) => {
           return;
         }
         await dispatchExecPrompt(command.text.trim());
+        return;
+      case "send_key":
+        try {
+          await sendKey(command.args ?? {});
+        } catch (error) {
+          await runtime.sendText(
+            undefined,
+            error instanceof Error ? error.message : "Failed to send special key."
+          );
+        }
         return;
     }
   }
@@ -388,7 +665,54 @@ runtime.onCommand(async (command) => {
       await sendLiteral(text);
       break;
     }
+    case "send_key":
+      try {
+        await sendKey(command.args ?? {});
+      } catch (error) {
+        await runtime.sendText(
+          undefined,
+          error instanceof Error ? error.message : "Failed to send special key."
+        );
+      }
+      break;
   }
+});
+
+runtime.onTuiMenuSelect(async (select) => {
+  const targetPane = await resolvePane();
+
+  if (select.menuId !== activeMenuId) {
+    await runtime.sendText(undefined, "Menu selection timed out or menu changed.");
+    return;
+  }
+
+  // Find selected item index and navigate to it
+  const itemIndex = parseInt(select.itemId.replace("item_", ""), 10);
+  if (itemIndex < 0) {
+    await runtime.sendText(undefined, "Invalid menu item selected.");
+    return;
+  }
+
+  // Navigate down to the item (if not first item)
+  for (let step = 0; step < itemIndex; step += 1) {
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Down"], { encoding: "utf8" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  // Press Enter to select
+  await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
+
+  // Clear menu state
+  activeMenuId = undefined;
+  lastMenuItemsHash = undefined;
+
+  // Start a new task to capture the result
+  activeOpenCodeTask = {
+    id: `menu_select_${Date.now()}`,
+    prompt: `Menu selection: ${select.itemId}`,
+    startedAt: Date.now(),
+    sawBusy: false
+  };
 });
 
 runtime.connect()
@@ -441,7 +765,7 @@ function defaultAgentId(currentProfile: BridgeProfile, currentSessionName: strin
 
 function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: CodexMode): string | undefined {
   if (currentProfile === "opencode") {
-    return "sh";
+    return buildOpenCodeInteractiveCommand();
   }
   if (currentProfile === "codex") {
     return currentCodexMode === "exec" ? "sh" : "codex --no-alt-screen";
@@ -453,8 +777,7 @@ function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: 
 }
 
 function isExecProfile(currentProfile: BridgeProfile): boolean {
-  return currentProfile === "opencode"
-    || currentProfile === "copilot"
+  return currentProfile === "copilot"
     || currentProfile === "qwen"
     || (currentProfile === "codex" && codexMode === "exec");
 }
@@ -554,5 +877,31 @@ function streamMetadata(task: ActiveExecTask, snapshot: ReturnType<typeof parseP
     reasoningTokens: snapshot.reasoningTokens,
     contextUsedTokens: snapshot.contextUsedTokens,
     contextWindowTokens: snapshot.contextWindowTokens
+  };
+}
+
+function buildOpenCodeInteractiveCommand(): string {
+  const explicitModel = process.env.TMUX_PROVIDER_MODEL?.trim() || process.env.OPENCODE_MODEL?.trim();
+  const userHome = process.env.IRIS_USER_HOME?.trim() || process.env.HOME?.trim() || homedir();
+  const preferredExecutable = path.join(userHome, ".opencode", "bin", "opencode");
+  const executable = fs.existsSync(preferredExecutable) ? preferredExecutable : "opencode";
+  return [
+    `HOME=${shellQuote(userHome)}`,
+    shellQuote(executable),
+    ".",
+    explicitModel ? `--model ${shellQuote(explicitModel)}` : ""
+  ].filter(Boolean).join(" ");
+}
+
+function openCodeMetadata(
+  task: ActiveOpenCodeTask,
+  capture: ReturnType<typeof parseOpenCodeInteractiveCapture>
+): Record<string, unknown> {
+  return {
+    model: capture.model ?? task.model,
+    provider: "opencode",
+    contextUsedTokens: capture.contextUsedTokens,
+    contextWindowTokens: capture.contextWindowTokens,
+    interactive: true
   };
 }

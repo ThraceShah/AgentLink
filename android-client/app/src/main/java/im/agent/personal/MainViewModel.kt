@@ -26,7 +26,8 @@ data class MainUiState(
     val isConnecting: Boolean = false,
     val isCreatingSession: Boolean = false,
     val connectionError: String? = null,
-    val socketState: SocketConnectionState = SocketConnectionState.DISCONNECTED
+    val socketState: SocketConnectionState = SocketConnectionState.DISCONNECTED,
+    val activeTuiMenu: TuiMenu? = null
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -122,6 +123,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 .plus(event)
                                 .sortedBy { it.timestamp }
                         )
+                    },
+                    onTuiMenu = { menu ->
+                        _uiState.value = _uiState.value.copy(activeTuiMenu = menu)
                     }
                 )
                 refreshFromHub()
@@ -155,6 +159,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         val commandId = repository?.sendCommand(agentId, "send_text", trimmed) ?: return
         appendOptimisticUserEvent(agentId = agentId, commandId = commandId, type = "send_text", text = trimmed)
+    }
+
+    fun sendSpecialKey(agentId: String, key: String, modifiers: List<String> = emptyList()) {
+        val normalizedKey = key.trim()
+        if (normalizedKey.isEmpty()) {
+            return
+        }
+        repository?.sendCommand(
+            agentId = agentId,
+            type = "send_key",
+            args = buildJsonObject {
+                put("key", normalizedKey)
+                if (modifiers.isNotEmpty()) {
+                    put("modifiers", kotlinx.serialization.json.JsonArray(modifiers.map { modifier ->
+                        kotlinx.serialization.json.JsonPrimitive(modifier)
+                    }))
+                }
+            }
+        )
+    }
+
+    fun selectTuiMenuItem(itemId: String) {
+        val menu = _uiState.value.activeTuiMenu ?: return
+        repository?.sendTuiMenuSelect(
+            agentId = menu.agentId,
+            menuId = menu.menuId,
+            itemId = itemId
+        )
+        _uiState.value = _uiState.value.copy(activeTuiMenu = null)
+    }
+
+    fun dismissTuiMenu() {
+        _uiState.value = _uiState.value.copy(activeTuiMenu = null)
     }
 
     fun createSession(profileId: String, sessionName: String, workdir: String) {

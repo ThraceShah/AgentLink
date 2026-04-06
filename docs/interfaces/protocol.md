@@ -88,6 +88,7 @@ MVP 支持：
 - `retry`
 - `approve`
 - `send_text`
+- `send_key`
 - `custom`
 
 ## 5. 事件模型

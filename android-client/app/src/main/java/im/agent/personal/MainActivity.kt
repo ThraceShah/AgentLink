@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -41,6 +42,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -89,6 +92,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -129,6 +133,11 @@ private data class ConversationRuntimeState(
     val contextWindowTokens: Int? = null
 )
 
+private data class TuiComposerState(
+    val prompt: String,
+    val keyHints: List<String> = emptyList()
+)
+
 data class DebugCommandProbe(
     val agentId: String?,
     val command: String,
@@ -159,7 +168,10 @@ class MainActivity : ComponentActivity() {
                     onCreateSession = viewModel::createSession,
                     onDeleteSession = viewModel::deleteSession,
                     onQuickCommand = viewModel::sendQuickCommand,
-                    onSendInstruction = viewModel::sendInstruction
+                    onSendInstruction = viewModel::sendInstruction,
+                    onSendSpecialKey = viewModel::sendSpecialKey,
+                    onSelectTuiMenuItem = viewModel::selectTuiMenuItem,
+                    onDismissTuiMenu = viewModel::dismissTuiMenu
                 )
             }
         }
@@ -255,11 +267,23 @@ private fun AppContent(
     onCreateSession: (String, String, String) -> Unit,
     onDeleteSession: (String) -> Unit,
     onQuickCommand: (String, String) -> Unit,
-    onSendInstruction: (String, String) -> Unit
+    onSendInstruction: (String, String) -> Unit,
+    onSendSpecialKey: (String, String, List<String>) -> Unit,
+    onSelectTuiMenuItem: (String) -> Unit,
+    onDismissTuiMenu: () -> Unit
 ) {
     val selectedAgent = state.agents.firstOrNull { it.agentId == state.selectedAgentId }
     BackHandler(enabled = selectedAgent != null) {
         onBackToInbox()
+    }
+
+    // TUI Menu Dialog
+    state.activeTuiMenu?.let { menu ->
+        TuiMenuDialog(
+            menu = menu,
+            onDismiss = onDismissTuiMenu,
+            onSelect = onSelectTuiMenuItem
+        )
     }
 
     Box(
@@ -285,7 +309,8 @@ private fun AppContent(
                 onBackToInbox = onBackToInbox,
                 onDeleteSession = onDeleteSession,
                 onQuickCommand = onQuickCommand,
-                onSendInstruction = onSendInstruction
+                onSendInstruction = onSendInstruction,
+                onSendSpecialKey = onSendSpecialKey
             )
         }
     }
@@ -428,10 +453,12 @@ private fun ConversationScreen(
     onBackToInbox: () -> Unit,
     onDeleteSession: (String) -> Unit,
     onQuickCommand: (String, String) -> Unit,
-    onSendInstruction: (String, String) -> Unit
+    onSendInstruction: (String, String) -> Unit,
+    onSendSpecialKey: (String, String, List<String>) -> Unit
 ) {
     var showDeleteConfirm by rememberSaveable(agent.agentId) { mutableStateOf(false) }
     val runtimeState = remember(events) { deriveConversationRuntimeState(events) }
+    val tuiComposerState = remember(events) { deriveTuiComposerState(events) }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -468,8 +495,10 @@ private fun ConversationScreen(
             Column {
                 ConversationComposer(
                     agent = agent,
+                    tuiComposerState = tuiComposerState,
                     onQuickCommand = onQuickCommand,
-                    onSendInstruction = onSendInstruction
+                    onSendInstruction = onSendInstruction,
+                    onSendSpecialKey = onSendSpecialKey
                 )
                 ConversationRuntimeBar(runtimeState = runtimeState)
             }
@@ -1134,10 +1163,60 @@ private fun SelectableTextDialog(
 @Composable
 private fun ConversationComposer(
     agent: AgentSnapshot,
+    tuiComposerState: TuiComposerState?,
     onQuickCommand: (String, String) -> Unit,
-    onSendInstruction: (String, String) -> Unit
+    onSendInstruction: (String, String) -> Unit,
+    onSendSpecialKey: (String, String, List<String>) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
+    var pendingModifiers by rememberSaveable(agent.agentId) { mutableStateOf(listOf<String>()) }
+    var showLiteralKeyDialog by rememberSaveable(agent.agentId) { mutableStateOf(false) }
+    var showSlashMenu by remember { mutableStateOf(false) }
+    var slashMenuFilter by remember { mutableStateOf("") }
+
+    LaunchedEffect(tuiComposerState != null) {
+        if (tuiComposerState == null && pendingModifiers.isNotEmpty()) {
+            pendingModifiers = emptyList()
+        }
+    }
+
+    fun sendTuiKey(key: String) {
+        onSendSpecialKey(agent.agentId, key, pendingModifiers)
+        pendingModifiers = emptyList()
+    }
+
+    fun executeSlashCommand(node: SlashCommandNode, userInput: String?) {
+        val commandType = node.commandType ?: return
+        when {
+            commandType == "send_text" && userInput != null -> {
+                onSendInstruction(agent.agentId, userInput)
+            }
+            commandType == "send_text" -> {
+                val commandText = "/${node.id}"
+                onSendInstruction(agent.agentId, commandText)
+            }
+            else -> {
+                onQuickCommand(agent.agentId, commandType)
+            }
+        }
+    }
+
+    if (showSlashMenu) {
+        SlashCommandMenu(
+            commands = agent.slashCommands,
+            filter = slashMenuFilter,
+            onDismiss = {
+                showSlashMenu = false
+                slashMenuFilter = ""
+            },
+            onExecute = { node, userInput ->
+                executeSlashCommand(node, userInput)
+                showSlashMenu = false
+                slashMenuFilter = ""
+                text = ""
+            }
+        )
+    }
 
     Surface(
         modifier = Modifier
@@ -1154,6 +1233,24 @@ private fun ConversationComposer(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (tuiComposerState != null) {
+                TuiKeypad(
+                    prompt = tuiComposerState.prompt,
+                    keyHints = tuiComposerState.keyHints,
+                    pendingModifiers = pendingModifiers,
+                    onModifierToggle = { modifier ->
+                        pendingModifiers = if (pendingModifiers.contains(modifier)) {
+                            pendingModifiers - modifier
+                        } else {
+                            pendingModifiers + modifier
+                        }
+                    },
+                    onSendKey = ::sendTuiKey,
+                    onLiteralKeyRequest = { showLiteralKeyDialog = true },
+                    onClearPending = { pendingModifiers = emptyList() }
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1161,17 +1258,30 @@ private fun ConversationComposer(
             ) {
                 OutlinedTextField(
                     value = text,
-                    onValueChange = { text = it },
+                    onValueChange = { newText ->
+                        text = newText
+                        if (newText.startsWith("/") && !showSlashMenu) {
+                            slashMenuFilter = newText.drop(1).trim()
+                            showSlashMenu = true
+                        } else if (showSlashMenu) {
+                            slashMenuFilter = if (newText.startsWith("/")) {
+                                newText.drop(1).trim()
+                            } else {
+                                showSlashMenu = false
+                                ""
+                            }
+                        }
+                    },
                     modifier = Modifier.weight(1f),
                     label = { Text("Message") },
-                    placeholder = { Text(slashCommandPlaceholder(agent)) },
+                    placeholder = { Text(placeholderText(agent)) },
                     supportingText = {
-                        val supported = slashCommandLabels(agent)
+                        val supported = agent.slashCommands.take(3).map { "/${it.label.lowercase()}" }
                         Text(
                             if (supported.isEmpty()) {
                                 "Send plain text instructions."
                             } else {
-                                "Commands: ${supported.joinToString(" ")}"
+                                "Type / for commands (${supported.joinToString(" ")})"
                             }
                         )
                     },
@@ -1181,9 +1291,9 @@ private fun ConversationComposer(
                     onClick = {
                         if (text.isNotBlank()) {
                             val input = text.trim()
-                            val slashCommand = parseSlashCommand(agent, input)
-                            if (slashCommand != null) {
-                                onQuickCommand(agent.agentId, slashCommand)
+                            val matched = matchSlashCommand(agent.slashCommands, input)
+                            if (matched != null) {
+                                executeSlashCommand(matched.first, matched.second)
                             } else {
                                 onSendInstruction(agent.agentId, input)
                             }
@@ -1200,6 +1310,167 @@ private fun ConversationComposer(
             }
         }
     }
+
+    if (showLiteralKeyDialog) {
+        LiteralKeyDialog(
+            pendingModifiers = pendingModifiers,
+            onDismiss = { showLiteralKeyDialog = false },
+            onConfirm = { key ->
+                sendTuiKey(key)
+                showLiteralKeyDialog = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TuiKeypad(
+    prompt: String,
+    keyHints: List<String>,
+    pendingModifiers: List<String>,
+    onModifierToggle: (String) -> Unit,
+    onSendKey: (String) -> Unit,
+    onLiteralKeyRequest: () -> Unit,
+    onClearPending: () -> Unit
+) {
+    val suggestedKeys = remember(keyHints) { normalizeKeyHints(keyHints) }
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f)
+        ),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                "TUI input mode",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                prompt,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (pendingModifiers.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Pending: ${pendingModifiers.joinToString("+") { it.uppercase() }} + next key",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    TextButton(onClick = onClearPending) {
+                        Text("Clear")
+                    }
+                }
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ModifierChip(
+                    label = "Ctrl",
+                    active = pendingModifiers.contains("ctrl"),
+                    onClick = { onModifierToggle("ctrl") }
+                )
+                TuiKeyChip(label = "↑", onClick = { onSendKey("up") })
+                TuiKeyChip(label = "↓", onClick = { onSendKey("down") })
+                TuiKeyChip(label = "←", onClick = { onSendKey("left") })
+                TuiKeyChip(label = "→", onClick = { onSendKey("right") })
+                TuiKeyChip(label = "Enter", onClick = { onSendKey("enter") })
+                TuiKeyChip(label = "Esc", onClick = { onSendKey("esc") })
+                TuiKeyChip(label = "Tab", onClick = { onSendKey("tab") })
+                TuiKeyChip(label = "Bksp", onClick = { onSendKey("backspace") })
+                TuiKeyChip(label = "Key", onClick = onLiteralKeyRequest)
+                suggestedKeys.forEach { key ->
+                    TuiKeyChip(label = key.uppercase(), onClick = { onSendKey(key) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TuiKeyChip(label: String, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label) }
+    )
+}
+
+@Composable
+private fun ModifierChip(label: String, active: Boolean, onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label) },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = if (active) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            labelColor = if (active) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+        )
+    )
+}
+
+@Composable
+private fun LiteralKeyDialog(
+    pendingModifiers: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var value by rememberSaveable { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Send single key") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (pendingModifiers.isNotEmpty()) {
+                    Text(
+                        "Will send ${pendingModifiers.joinToString("+") { it.uppercase() }} + key",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it.take(1) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Key") },
+                    placeholder = { Text("for example: c") },
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(value.trim()) },
+                enabled = value.trim().length == 1
+            ) {
+                Text("Send")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
@@ -1343,6 +1614,211 @@ private fun EmptyTimelineCard() {
             )
         }
     }
+}
+
+private fun placeholderText(agent: AgentSnapshot): String {
+    return if (agent.slashCommands.isEmpty()) {
+        "Ask the agent to continue, summarize, or fix something"
+    } else {
+        "Send text or type / for commands"
+    }
+}
+
+private fun matchSlashCommand(
+    commands: List<SlashCommandNode>,
+    input: String
+): Pair<SlashCommandNode, String?>? {
+    if (!input.startsWith("/")) return null
+    val afterSlash = input.drop(1).trim()
+    if (afterSlash.isBlank()) return null
+
+    val parts = afterSplit(afterSlash)
+    val firstToken = parts.first.lowercase()
+
+    val matched = findCommandByPath(commands, firstToken)
+    if (matched == null) return null
+
+    val userInput = parts.second.takeIf { it.isNotBlank() }
+    return Pair(matched, userInput)
+}
+
+private fun afterSplit(text: String): Pair<String, String> {
+    val idx = text.indexOf(' ')
+    return if (idx > 0) {
+        text.substring(0, idx) to text.substring(idx + 1)
+    } else {
+        text to ""
+    }
+}
+
+private fun findCommandByPath(
+    commands: List<SlashCommandNode>,
+    token: String
+): SlashCommandNode? {
+    for (cmd in commands) {
+        if (cmd.id.lowercase() == token || cmd.label.lowercase() == token) {
+            if (cmd.requiresInput == true || cmd.children.isEmpty()) {
+                return cmd
+            }
+            if (cmd.children.size == 1 && cmd.children[0].children.isEmpty()) {
+                return cmd.children[0]
+            }
+            return cmd
+        }
+        val child = findCommandByPath(cmd.children, token)
+        if (child != null) return child
+    }
+    return null
+}
+
+private fun flattenCommands(commands: List<SlashCommandNode>, prefix: String = ""): List<Pair<String, SlashCommandNode>> {
+    val result = mutableListOf<Pair<String, SlashCommandNode>>()
+    for (cmd in commands) {
+        val path = if (prefix.isEmpty()) cmd.label else "$prefix / ${cmd.label}"
+        if (cmd.children.isEmpty() || cmd.requiresInput == true) {
+            result.add(path to cmd)
+        }
+        result.addAll(flattenCommands(cmd.children, path))
+    }
+    return result
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SlashCommandMenu(
+    commands: List<SlashCommandNode>,
+    filter: String,
+    onDismiss: () -> Unit,
+    onExecute: (SlashCommandNode, String?) -> Unit
+) {
+    var selectedPath by remember { mutableStateOf<List<String>>(emptyList()) }
+    var inputText by remember { mutableStateOf("") }
+
+    val currentCommands = remember(selectedPath, commands) {
+        var nodes = commands
+        for (segment in selectedPath) {
+            val found = nodes.find { it.id == segment || it.label == segment }
+            if (found != null) {
+                nodes = found.children
+            } else {
+                break
+            }
+        }
+        nodes
+    }
+
+    val filtered = remember(currentCommands, filter) {
+        if (filter.isEmpty()) {
+            flattenCommands(currentCommands)
+        } else {
+            flattenCommands(currentCommands).filter { (_, cmd) ->
+                cmd.label.contains(filter, ignoreCase = true)
+                        || cmd.description?.contains(filter, ignoreCase = true) == true
+                        || cmd.id.contains(filter, ignoreCase = true)
+            }
+        }
+    }
+
+    val currentNode = if (selectedPath.isNotEmpty()) {
+        var node: SlashCommandNode? = null
+        var nodes = commands
+        for (segment in selectedPath) {
+            node = nodes.find { it.id == segment || it.label == segment }
+            if (node != null) nodes = node.children else break
+        }
+        node
+    } else null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Slash Commands")
+                if (selectedPath.isNotEmpty()) {
+                    Text(
+                        selectedPath.joinToString(" / "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.heightIn(max = 400.dp)
+            ) {
+                if (currentNode?.requiresInput == true) {
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = { inputText = it },
+                        placeholder = { Text(currentNode.inputPlaceholder ?: "Enter value...") },
+                        maxLines = 3
+                    )
+                    Button(
+                        onClick = { onExecute(currentNode, inputText.takeIf { it.isNotBlank() }) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Execute")
+                    }
+                }
+
+                val scrollState = rememberScrollState()
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState)
+                        .weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (filtered.isNotEmpty()) {
+                        filtered.forEach { (path, cmd) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (cmd.requiresInput == true) {
+                                            onExecute(cmd, null)
+                                        } else if (cmd.children.isNotEmpty()) {
+                                            selectedPath = selectedPath + cmd.id
+                                        } else {
+                                            onExecute(cmd, null)
+                                        }
+                                    }
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(cmd.label, fontWeight = FontWeight.Medium)
+                                    if (cmd.description != null) {
+                                        Text(
+                                            cmd.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                if (cmd.children.isNotEmpty()) {
+                                    Text("→", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    } else if (currentNode?.requiresInput != true) {
+                        Text(
+                            "No matching commands",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 private fun quickCommandLabels(agent: AgentSnapshot): List<String> {
@@ -1562,6 +2038,23 @@ private fun deriveConversationRuntimeState(events: List<TimelineEvent>): Convers
     )
 }
 
+private fun deriveTuiComposerState(events: List<TimelineEvent>): TuiComposerState? {
+    val latestNeedInput = events
+        .asSequence()
+        .filter { it.eventType == "need_user_input" }
+        .maxByOrNull { it.timestamp }
+        ?: return null
+
+    if (latestNeedInput.metadata?.stringValue("inputMode") != "tui" || latestNeedInput.body.isNullOrBlank()) {
+        return null
+    }
+
+    return TuiComposerState(
+        prompt = latestNeedInput.body.orEmpty(),
+        keyHints = latestNeedInput.metadata?.stringListValue("keyHints").orEmpty()
+    )
+}
+
 private fun eventModelLabel(event: TimelineEvent): String? {
     return event.metadata?.get("model")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
 }
@@ -1587,6 +2080,22 @@ private fun kotlinx.serialization.json.JsonObject.stringValue(key: String): Stri
 
 private fun kotlinx.serialization.json.JsonObject.intValue(key: String): Int? {
     return this[key]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+}
+
+private fun kotlinx.serialization.json.JsonObject.stringListValue(key: String): List<String> {
+    val raw = this[key] ?: return emptyList()
+    return raw.jsonArray.mapNotNull { item ->
+        item.jsonPrimitive.contentOrNull?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+    }
+}
+
+private fun normalizeKeyHints(keyHints: List<String>): List<String> {
+    val reserved = setOf("up", "down", "left", "right", "enter", "esc", "tab", "backspace")
+    return keyHints
+        .map { it.trim().lowercase() }
+        .filter { it.length == 1 && it !in reserved }
+        .distinct()
+        .take(6)
 }
 
 private fun tmuxSessionLine(agent: AgentSnapshot): String {
@@ -1671,4 +2180,90 @@ private fun readOpenAgentId(intent: Intent?): String? {
 
 private fun ComponentActivity.isDebuggableBuild(): Boolean {
     return (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TuiMenuDialog(
+    menu: TuiMenu,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    var selectedInput by rememberSaveable { mutableStateOf("") }
+    val scrollState = rememberScrollState()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(menu.title) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                menu.items.forEach { item ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = {
+                                    if (item.isInput == true) {
+                                        // For input items, don't select immediately
+                                    } else {
+                                        onSelect(item.id)
+                                    }
+                                }
+                            ),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Text(
+                                item.label,
+                                fontWeight = FontWeight.Medium
+                            )
+                            item.description?.let { desc ->
+                                Text(
+                                    desc,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (item.isInput == true) {
+                                OutlinedTextField(
+                                    value = selectedInput,
+                                    onValueChange = { selectedInput = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp),
+                                    placeholder = { Text(item.inputPlaceholder ?: "Enter value...") },
+                                    singleLine = true
+                                )
+                                Button(
+                                    onClick = {
+                                        if (selectedInput.isNotBlank()) {
+                                            onSelect(item.id)
+                                        }
+                                    },
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    enabled = selectedInput.isNotBlank()
+                                ) {
+                                    Text("Submit")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

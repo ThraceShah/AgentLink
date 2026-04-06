@@ -11,6 +11,18 @@ data class BootstrapResponse(
 )
 
 @Serializable
+data class SlashCommandNode(
+    val id: String,
+    val label: String,
+    val description: String? = null,
+    val commandType: String? = null,
+    val requiresInput: Boolean? = null,
+    val inputPlaceholder: String? = null,
+    val keyValue: String? = null,
+    val children: List<SlashCommandNode> = emptyList()
+)
+
+@Serializable
 data class AgentSnapshot(
     val agentId: String,
     val displayName: String,
@@ -19,6 +31,7 @@ data class AgentSnapshot(
     val sessionHint: String? = null,
     val capabilities: List<String> = emptyList(),
     val quickCommands: List<String> = emptyList(),
+    val slashCommands: List<SlashCommandNode> = emptyList(),
     val lastSeenAt: String,
     val lastMessage: String? = null
 )
@@ -50,7 +63,8 @@ data class Artifact(
 data class CommandPayload(
     val id: String,
     val type: String,
-    val text: String? = null
+    val text: String? = null,
+    val args: JsonObject? = null
 )
 
 @Serializable
@@ -130,4 +144,32 @@ data class DeleteSessionResponse(
 @Serializable
 data class PruneOfflineResponse(
     val removedAgentIds: List<String>
+)
+
+@Serializable
+data class TuiMenuItem(
+    val id: String,
+    val label: String,
+    val description: String? = null,
+    val isInput: Boolean? = null,
+    val inputPlaceholder: String? = null
+)
+
+@Serializable
+data class TuiMenu(
+    val type: String = "tui_menu",
+    val agentId: String,
+    val menuId: String,
+    val title: String,
+    val items: List<TuiMenuItem>,
+    val timestamp: String
+)
+
+@Serializable
+data class TuiMenuSelectEnvelope(
+    val type: String = "tui_menu_select",
+    val agentId: String,
+    val menuId: String,
+    val itemId: String,
+    val inputValue: String? = null
 )

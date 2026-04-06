@@ -6,7 +6,9 @@ import {
   serializeMessage,
   type CommandPayload,
   type CommandType,
-  type EventType
+  type EventType,
+  type SlashCommandNode,
+  type TuiMenuSelect
 } from "../../protocol/src/index.js";
 
 type RuntimeOptions = {
@@ -17,7 +19,10 @@ type RuntimeOptions = {
   sessionHint?: string;
   capabilities?: string[];
   quickCommands?: CommandType[];
+  slashCommands?: SlashCommandNode[];
 };
+
+export type { SlashCommandNode, TuiMenuSelect };
 
 type EventInput = {
   id?: string;
@@ -42,6 +47,7 @@ export class AgentRuntime {
   private socket?: WebSocket;
   private heartbeat?: NodeJS.Timeout;
   private commandHandler?: (command: CommandPayload) => Promise<void> | void;
+  private tuiMenuSelectHandler?: (select: TuiMenuSelect) => Promise<void> | void;
 
   constructor(options: RuntimeOptions) {
     this.options = options;
@@ -62,7 +68,8 @@ export class AgentRuntime {
             kind: this.options.kind,
             sessionHint: this.options.sessionHint,
             capabilities: this.options.capabilities ?? [],
-            quickCommands: this.options.quickCommands ?? []
+            quickCommands: this.options.quickCommands ?? [],
+            slashCommands: this.options.slashCommands ?? []
           }
         }));
         this.heartbeat = setInterval(() => {
@@ -79,6 +86,9 @@ export class AgentRuntime {
         if (payload.type === "command" && payload.agentId === this.options.agentId && this.commandHandler) {
           await this.commandHandler(payload.command as CommandPayload);
         }
+        if (payload.type === "tui_menu_select" && payload.agentId === this.options.agentId && this.tuiMenuSelectHandler) {
+          await this.tuiMenuSelectHandler(payload as TuiMenuSelect);
+        }
       });
 
       socket.on("error", (error) => reject(error));
@@ -94,6 +104,10 @@ export class AgentRuntime {
     this.commandHandler = handler;
   }
 
+  onTuiMenuSelect(handler: (select: TuiMenuSelect) => Promise<void> | void): void {
+    this.tuiMenuSelectHandler = handler;
+  }
+
   async emitEvent(input: EventInput): Promise<void> {
     this.send({
       type: "agent_event",
@@ -107,6 +121,23 @@ export class AgentRuntime {
         status: input.status,
         metadata: input.metadata
       }
+    });
+  }
+
+  async emitTuiMenu(menuId: string, title: string, items: Array<{ id: string; label: string; description?: string; isInput?: boolean; inputPlaceholder?: string }>): Promise<void> {
+    this.send({
+      type: "tui_menu",
+      agentId: this.options.agentId,
+      menuId,
+      title,
+      items: items.map((item, idx) => ({
+        id: item.id ?? `item_${idx}`,
+        label: item.label,
+        description: item.description,
+        isInput: item.isInput,
+        inputPlaceholder: item.inputPlaceholder
+      })),
+      timestamp: nowIso()
     });
   }
 
