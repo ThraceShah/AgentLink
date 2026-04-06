@@ -409,6 +409,7 @@ async function pollExecTask(): Promise<void> {
     eventId: task.eventId,
     emittedText: task.emittedText,
     latestReply,
+    prompt: task.prompt,
     exitCode,
     snapshot: streamSnapshot,
     metadata
@@ -453,6 +454,37 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
         label: item.label,
         description: item.description
       })));
+    }
+
+    activeOpenCodeTask = undefined;
+    return;
+  }
+
+  if (snapshot.dialog) {
+    const dialogId = snapshot.dialog.id || `dialog_${Date.now()}`;
+    const itemsHash = [
+      snapshot.dialog.body ?? "",
+      ...snapshot.dialog.actions.map((item) => `${item.id}:${item.label}`)
+    ].join("|");
+
+    if (dialogId !== activeMenuId || itemsHash !== lastMenuItemsHash) {
+      activeMenuId = dialogId;
+      lastMenuItemsHash = itemsHash;
+      activeMenuSelectedIndex = undefined;
+      latestReply = snapshot.promptBody ?? snapshot.dialog.title;
+
+      await runtime.emitTuiMenu(
+        dialogId,
+        snapshot.dialog.title,
+        snapshot.dialog.actions.map((item) => ({
+          id: item.id,
+          label: item.label,
+          description: item.description,
+          isInput: item.isInput,
+          inputPlaceholder: item.inputPlaceholder
+        })),
+        snapshot.dialog.body
+      );
     }
 
     activeOpenCodeTask = undefined;
@@ -514,9 +546,19 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
   }
 
   if (snapshot.readyForInput) {
+    const completionText = buildCommandCompletionText("OpenCode", task.prompt);
     activeMenuId = undefined;
     lastMenuItemsHash = undefined;
     activeMenuSelectedIndex = undefined;
+    if (completionText && !task.promptBody) {
+      latestReply = completionText;
+      await runtime.emitEvent({
+        id: task.id,
+        eventType: "text_output",
+        body: completionText,
+        metadata: openCodeMetadata(task, snapshot)
+      });
+    }
     await runtime.emitEvent({
       eventType: "need_user_input",
       status: "waiting_input",
@@ -532,9 +574,19 @@ async function pollOpenCodeInteractiveTask(capture: string): Promise<void> {
   }
 
   if (task.sawBusy) {
+    const completionText = buildCommandCompletionText("OpenCode", task.prompt);
     activeMenuId = undefined;
     lastMenuItemsHash = undefined;
     activeMenuSelectedIndex = undefined;
+    if (completionText) {
+      latestReply = completionText;
+      await runtime.emitEvent({
+        id: task.id,
+        eventType: "text_output",
+        body: completionText,
+        metadata: openCodeMetadata(task, snapshot)
+      });
+    }
     await runtime.emitEvent({
       eventType: "need_user_input",
       status: "waiting_input",
@@ -592,6 +644,9 @@ runtime.onCommand(async (command) => {
       case "send_key":
         try {
           await sendKey(command.args ?? {});
+          if (!activeOpenCodeTask) {
+            beginOpenCodeFollowUp(`Special key: ${JSON.stringify(command.args ?? {})}`);
+          }
         } catch (error) {
           await runtime.sendText(
             undefined,
@@ -710,6 +765,33 @@ runtime.onTuiMenuSelect(async (select) => {
     return;
   }
 
+  if (select.itemId === "__cancel__") {
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Escape"], { encoding: "utf8" });
+    resetActiveMenuState();
+    beginOpenCodeFollowUp(`Dialog cancel: ${select.menuId}`);
+    return;
+  }
+
+  if (select.itemId === "__confirm__") {
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
+    resetActiveMenuState();
+    beginOpenCodeFollowUp(`Dialog confirm: ${select.menuId}`);
+    return;
+  }
+
+  if (select.itemId === "__submit__") {
+    const inputValue = select.inputValue?.trim();
+    if (!inputValue) {
+      await runtime.sendText(undefined, "Please enter a value before submitting.");
+      return;
+    }
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "-l", inputValue], { encoding: "utf8" });
+    await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
+    resetActiveMenuState();
+    beginOpenCodeFollowUp(`Dialog submit: ${select.menuId}`);
+    return;
+  }
+
   // Find selected item index and navigate to it
   const itemIndex = parseInt(select.itemId.replace("item_", ""), 10);
   if (itemIndex < 0) {
@@ -728,17 +810,8 @@ runtime.onTuiMenuSelect(async (select) => {
   await execFileAsync("tmux", ["send-keys", "-t", targetPane, "Enter"], { encoding: "utf8" });
 
   // Clear menu state
-  activeMenuId = undefined;
-  lastMenuItemsHash = undefined;
-  activeMenuSelectedIndex = undefined;
-
-  // Start a new task to capture the result
-  activeOpenCodeTask = {
-    id: `menu_select_${Date.now()}`,
-    prompt: `Menu selection: ${select.itemId}`,
-    startedAt: Date.now(),
-    sawBusy: false
-  };
+  resetActiveMenuState();
+  beginOpenCodeFollowUp(`Menu selection: ${select.itemId}`);
 });
 
 runtime.connect()
@@ -930,4 +1003,27 @@ function openCodeMetadata(
     contextWindowTokens: capture.contextWindowTokens,
     interactive: true
   };
+}
+
+function resetActiveMenuState(): void {
+  activeMenuId = undefined;
+  lastMenuItemsHash = undefined;
+  activeMenuSelectedIndex = undefined;
+}
+
+function beginOpenCodeFollowUp(prompt: string): void {
+  activeOpenCodeTask = {
+    id: `menu_select_${Date.now()}`,
+    prompt,
+    startedAt: Date.now(),
+    sawBusy: false
+  };
+}
+
+function buildCommandCompletionText(providerName: string, prompt: string): string | undefined {
+  const normalized = prompt.trim();
+  if (!normalized.startsWith("/")) {
+    return undefined;
+  }
+  return `${providerName} finished ${normalized}.`;
 }

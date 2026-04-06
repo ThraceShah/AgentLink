@@ -61,6 +61,84 @@ describe("opencode interactive helpers", () => {
     expect(result.menuItems?.map((item) => item.label)).toEqual(["Default", "high", "max"]);
   });
 
+  it("parses generic slash command menus beyond model selection", () => {
+    const result = parseOpenCodeInteractiveCapture([
+      "     Sessions                                                           esc",
+      "",
+      "     Search",
+      "",
+      "     Today",
+      "   ● New session - 2026-04-06T15:20:02.200Z                        11:20 PM",
+      "",
+      "     delete ctrl+d  rename ctrl+r",
+      "                                                   tab agents  ctrl+p commands"
+    ].join("\n"));
+
+    expect(result.menuId).toBe("sessions");
+    expect(result.menuTitle).toBe("Sessions");
+    expect(result.menuItems?.map((item) => item.label)).toEqual([
+      "New session - 2026-04-06T15:20:02.200Z"
+    ]);
+  });
+
+  it("parses text-only status dialogs and suppresses ready prompt state", () => {
+    const result = parseOpenCodeInteractiveCapture([
+      "            Status                                               esc",
+      "",
+      "            No MCP Servers",
+      "",
+      "            1 Formatters",
+      "            • rustfmt",
+      "",
+      "            No Plugins",
+      "",
+      "  Ask anything... \"What is the tech stack of this project?\"",
+      "  Build Qwen3.6 Plus Free OpenCode Zen"
+    ].join("\n"));
+
+    expect(result.promptBody).toContain("Status");
+    expect(result.promptBody).toContain("No MCP Servers");
+    expect(result.dialog).toEqual({
+      id: "status",
+      title: "Status",
+      body: "No MCP Servers\n1 Formatters\n• rustfmt\nNo Plugins",
+      actions: [
+        {
+          id: "__cancel__",
+          label: "Cancel"
+        }
+      ]
+    });
+    expect(result.readyForInput).toBe(false);
+    expect(result.menuItems).toBeUndefined();
+  });
+
+  it("detects input dialogs that submit with enter", () => {
+    const result = parseOpenCodeInteractiveCapture([
+      "Rename Session                                       esc",
+      "AGENTS.md for OpenCode sessions guidelines",
+      "enter submit"
+    ].join("\n"));
+
+    expect(result.dialog).toEqual({
+      id: "rename_session",
+      title: "Rename Session",
+      body: "AGENTS.md for OpenCode sessions guidelines",
+      actions: [
+        {
+          id: "__submit__",
+          label: "Submit",
+          isInput: true,
+          inputPlaceholder: "New session name"
+        },
+        {
+          id: "__cancel__",
+          label: "Cancel"
+        }
+      ]
+    });
+  });
+
   it("detects idle prompt after interactive menu selection completes", () => {
     const result = parseOpenCodeInteractiveCapture([
       "                     █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█",

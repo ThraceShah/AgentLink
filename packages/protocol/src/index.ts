@@ -166,6 +166,7 @@ export const tuiMenuSchema = z.object({
   agentId: z.string(),
   menuId: z.string(),
   title: z.string(),
+  body: z.string().optional(),
   items: tuiMenuItemSchema.array(),
   timestamp: z.string()
 });

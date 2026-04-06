@@ -13,6 +13,7 @@ type ExecCompletionInput = {
   eventId: string;
   emittedText: string;
   latestReply: string;
+  prompt?: string;
   exitCode: number;
   snapshot: StreamSnapshot;
   metadata?: Record<string, unknown>;
@@ -34,6 +35,7 @@ function finalExecText(snapshot: StreamSnapshot): string {
 
 export function buildExecCompletionResult(input: ExecCompletionInput): ExecCompletionResult {
   const finalText = finalExecText(input.snapshot);
+  const completionText = buildCommandCompletionText(input.providerName, input.prompt);
 
   if (input.exitCode === 0) {
     const events: ExecEventInput[] = [];
@@ -51,6 +53,15 @@ export function buildExecCompletionResult(input: ExecCompletionInput): ExecCompl
           metadata: input.metadata
         });
       }
+    } else if (completionText) {
+      emittedText = completionText;
+      latestReply = completionText;
+      events.push({
+        id: input.eventId,
+        eventType: "text_output",
+        body: completionText,
+        metadata: input.metadata
+      });
     }
 
     events.push({
@@ -79,4 +90,12 @@ export function buildExecCompletionResult(input: ExecCompletionInput): ExecCompl
     emittedText: input.emittedText,
     latestReply: fallback
   };
+}
+
+function buildCommandCompletionText(providerName: string, prompt?: string): string | undefined {
+  const normalized = prompt?.trim();
+  if (!normalized?.startsWith("/")) {
+    return undefined;
+  }
+  return `${providerName} finished ${normalized}.`;
 }

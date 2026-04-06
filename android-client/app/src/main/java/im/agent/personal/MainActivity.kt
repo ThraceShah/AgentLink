@@ -2199,9 +2199,37 @@ private fun TuiMenuDialog(
 ) {
     var selectedInput by rememberSaveable { mutableStateOf("") }
     val scrollState = rememberScrollState()
+    val optionItems = remember(menu.items) {
+        menu.items.filterNot { it.id.startsWith("__") }
+    }
+    val cancelAction = remember(menu.items) {
+        menu.items.firstOrNull { it.id == "__cancel__" }
+    }
+    val primaryAction = remember(menu.items) {
+        menu.items.firstOrNull { it.id != "__cancel__" && it.id.startsWith("__") }
+    }
+    val inputAction = remember(menu.items) {
+        menu.items.firstOrNull { it.isInput == true }
+    }
+    val bodyText = menu.body?.trim().orEmpty().ifEmpty { null }
+
+    fun submitAction(action: TuiMenuItem) {
+        val inputValue = if (action.isInput == true) {
+            selectedInput.trim().takeIf { it.isNotEmpty() }
+        } else {
+            null
+        }
+        onSelect(action.id, inputValue)
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            if (cancelAction != null || optionItems.isNotEmpty()) {
+                onSelect(cancelAction?.id ?: "__cancel__", null)
+            } else {
+                onDismiss()
+            }
+        },
         title = { Text(menu.title) },
         text = {
             Column(
@@ -2211,17 +2239,36 @@ private fun TuiMenuDialog(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                menu.items.forEach { item ->
+                if (bodyText != null) {
+                    SelectionContainer {
+                        Text(
+                            bodyText,
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                if (inputAction != null) {
+                    OutlinedTextField(
+                        value = selectedInput,
+                        onValueChange = { selectedInput = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = if (bodyText != null) 8.dp else 0.dp),
+                        placeholder = { Text(inputAction.inputPlaceholder ?: "Enter value...") },
+                        singleLine = true
+                    )
+                }
+
+                optionItems.forEach { item ->
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .combinedClickable(
                                 onClick = {
-                                    if (item.isInput == true) {
-                                        // For input items, don't select immediately
-                                    } else {
-                                        onSelect(item.id, null)
-                                    }
+                                    onSelect(item.id, null)
                                 }
                             ),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
@@ -2241,36 +2288,32 @@ private fun TuiMenuDialog(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            if (item.isInput == true) {
-                                OutlinedTextField(
-                                    value = selectedInput,
-                                    onValueChange = { selectedInput = it },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp),
-                                    placeholder = { Text(item.inputPlaceholder ?: "Enter value...") },
-                                    singleLine = true
-                                )
-                                Button(
-                                    onClick = {
-                                        if (selectedInput.isNotBlank()) {
-                                            onSelect(item.id, selectedInput.trim())
-                                        }
-                                    },
-                                    modifier = Modifier.padding(top = 8.dp),
-                                    enabled = selectedInput.isNotBlank()
-                                ) {
-                                    Text("Submit")
-                                }
-                            }
                         }
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+            primaryAction?.let { action ->
+                Button(
+                    onClick = { submitAction(action) },
+                    enabled = action.isInput != true || selectedInput.isNotBlank()
+                ) {
+                    Text(action.label)
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    if (cancelAction != null || optionItems.isNotEmpty()) {
+                        onSelect(cancelAction?.id ?: "__cancel__", null)
+                    } else {
+                        onDismiss()
+                    }
+                }
+            ) {
+                Text(cancelAction?.label ?: "Cancel")
             }
         }
     )

@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- 将 `opencode` 的 `tui_menu` 扩展为通用 TUI dialog：Hub、协议层、tmux bridge 与 Android 现可携带正文内容，并统一复用同一套弹窗通道显示菜单、纯文本提示和输入型对话框。
+- 修复 Android 关闭 TUI 弹窗的回传语义：用户点 `Cancel` 或关闭弹窗时，客户端现在会向 tmux bridge 回传 `__cancel__`，并等价映射为 tmux `Esc`，避免 `/models`、`/status`、`/sessions` 等交互在 provider 侧残留未关闭状态。
+- 补齐 OpenCode 通用弹窗解析：bridge 现可识别 `/status` 等纯文本 modal 与 `Rename Session` 一类输入型 dialog，并支持 `__confirm__` / `__submit__` 动作，把 Android 的 `OK`、`Submit` 和文本输入准确送回原生 TUI。
+- 修复交互式命令的后续捕获与完成通知：`send_key` 触发的二级弹窗会继续被 bridge 捕获广播；`opencode`、`copilot` 等 slash command 在完成且无额外正文时，也会向 Android 落明确的完成消息，避免界面只停留在 `busy`。
 - 修复 Android 端 OpenCode TUI 菜单实时链路：WebSocket 客户端消息现会保留默认字段并省略空值，`hello` 与 `tui_menu_select` 不再因缺少 `type/role` 或显式 `null` 被 Hub 拒绝，`/models` 等菜单现可在手机端稳定弹出并完成选择回传。
 - 修正 `opencode` 菜单选择定位逻辑：tmux bridge 现在会识别当前高亮项，并按相对位置发送 `Up` / `Down`，避免模型选择器默认焦点不在首项时发生错选。
 - 修复 `opencode` 菜单链路残留状态：tmux bridge 现会把 `Select variant` 解析为 TUI 菜单，并在用户完成后续 variant 选择、回到 `Ask anything...` 输入态时正确结束本轮菜单任务，避免再次输入 `/models` 被误判为“previous request”。

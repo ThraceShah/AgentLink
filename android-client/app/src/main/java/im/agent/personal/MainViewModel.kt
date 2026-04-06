@@ -127,6 +127,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     onTuiMenu = { menu ->
                         android.util.Log.i("MainViewModel", "=== TUI MENU RECEIVED ===")
                         android.util.Log.i("MainViewModel", "agentId=${menu.agentId}, title=${menu.title}, items=${menu.items.size}")
+                        android.util.Log.i("MainViewModel", "body=${menu.body}")
                         android.util.Log.i("MainViewModel", "Current activeTuiMenu before update: ${_uiState.value.activeTuiMenu}")
                         _uiState.value = _uiState.value.copy(activeTuiMenu = menu)
                         android.util.Log.i("MainViewModel", "activeTuiMenu after update: ${_uiState.value.activeTuiMenu?.title}")
@@ -196,6 +197,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissTuiMenu() {
+        val menu = _uiState.value.activeTuiMenu ?: return
+        repository?.sendTuiMenuSelect(
+            agentId = menu.agentId,
+            menuId = menu.menuId,
+            itemId = "__cancel__"
+        )
         _uiState.value = _uiState.value.copy(activeTuiMenu = null)
     }
 

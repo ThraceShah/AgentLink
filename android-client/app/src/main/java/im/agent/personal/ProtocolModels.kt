@@ -161,6 +161,7 @@ data class TuiMenu(
     val agentId: String,
     val menuId: String,
     val title: String,
+    val body: String? = null,
     val items: List<TuiMenuItem>,
     val timestamp: String
 )

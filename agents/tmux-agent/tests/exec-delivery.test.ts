@@ -76,6 +76,39 @@ describe("buildExecCompletionResult", () => {
     ]);
   });
 
+  it("emits a synthetic completion notice for slash commands without final text", () => {
+    const result = buildExecCompletionResult({
+      providerName: "Qwen",
+      eventId: "stream_4",
+      emittedText: "",
+      latestReply: "",
+      prompt: "/compress",
+      exitCode: 0,
+      snapshot: {},
+      metadata: {
+        provider: "qwen"
+      }
+    });
+
+    expect(result.events).toEqual([
+      {
+        id: "stream_4",
+        eventType: "text_output",
+        body: "Qwen finished /compress.",
+        metadata: {
+          provider: "qwen"
+        }
+      },
+      {
+        eventType: "need_user_input",
+        status: "waiting_input",
+        metadata: {
+          provider: "qwen"
+        }
+      }
+    ]);
+  });
+
   it("uses the latest available text for task_failed", () => {
     const result = buildExecCompletionResult({
       providerName: "OpenCode",

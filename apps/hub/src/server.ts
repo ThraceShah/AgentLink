@@ -388,6 +388,7 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       if (message.type === "tui_menu") {
         const raw = JSON.parse(String(data)) as {
           type: string; agentId: string; menuId: string; title: string;
+          body?: string;
           items: Array<{ id: string; label: string; description?: string; isInput?: boolean; inputPlaceholder?: string }>;
           timestamp: string;
         };
@@ -396,6 +397,7 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
           agentId: raw.agentId,
           menuId: raw.menuId,
           title: raw.title,
+          body: raw.body,
           items: raw.items,
           timestamp: raw.timestamp
         });

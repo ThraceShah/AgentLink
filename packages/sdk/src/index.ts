@@ -124,12 +124,18 @@ export class AgentRuntime {
     });
   }
 
-  async emitTuiMenu(menuId: string, title: string, items: Array<{ id: string; label: string; description?: string; isInput?: boolean; inputPlaceholder?: string }>): Promise<void> {
+  async emitTuiMenu(
+    menuId: string,
+    title: string,
+    items: Array<{ id: string; label: string; description?: string; isInput?: boolean; inputPlaceholder?: string }>,
+    body?: string
+  ): Promise<void> {
     this.send({
       type: "tui_menu",
       agentId: this.options.agentId,
       menuId,
       title,
+      body,
       items: items.map((item, idx) => ({
         id: item.id ?? `item_${idx}`,
         label: item.label,
