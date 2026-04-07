@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { AgentRuntime } from "../../../packages/sdk/src/index.js";
 import type { SlashCommandNode, TuiMenuSelect } from "../../../packages/protocol/src/index.js";
 import { buildExecCompletionResult, latestExecPreview } from "./exec-delivery.js";
+import { CodexAppServerClient, type CodexPendingRequest } from "./codex-app-server.js";
 import { resolveProviderModel } from "./model-resolver.js";
 import { parseInteractiveCapture } from "./provider-interactive.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
@@ -47,7 +48,7 @@ type ActiveInteractiveTask = {
 
 const hubUrl = process.env.HUB_URL ?? "ws://127.0.0.1:8787/ws";
 const profile = (process.env.TMUX_BRIDGE_PROFILE ?? "generic") as BridgeProfile;
-const codexMode = ((process.env.TMUX_CODEX_MODE ?? "exec") as CodexMode);
+const codexMode = ((process.env.TMUX_CODEX_MODE ?? "interactive") as CodexMode);
 const sessionName = process.env.TMUX_SESSION ?? "iris-agent";
 const managedCommand = process.argv.slice(2).join(" ") || process.env.TMUX_COMMAND || defaultManagedCommand(profile, codexMode);
 const pollIntervalMs = Number(process.env.TMUX_POLL_MS ?? 1000);
@@ -132,6 +133,8 @@ let activeInteractiveTask: ActiveInteractiveTask | undefined;
 let activeMenuId: string | undefined;
 let lastMenuItemsHash: string | undefined;
 let activeMenuSelectedIndex: number | undefined;
+let codexAppClient: CodexAppServerClient | undefined;
+let codexModelMenuItems: Array<{ id: string; label: string; description?: string }> = [];
 
 async function tmux(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, { encoding: "utf8" });
@@ -704,7 +707,262 @@ async function pollInteractiveTask(capture: string): Promise<void> {
   }
 }
 
+function usesCodexAppServer(): boolean {
+  return profile === "codex" && codexMode === "interactive";
+}
+
+async function ensureCodexAppClient(): Promise<CodexAppServerClient> {
+  if (!usesCodexAppServer()) {
+    throw new Error("Codex app-server mode is not enabled.");
+  }
+
+  if (!codexAppClient) {
+    const targetPane = await resolvePane();
+    const panePath = await tmuxPanePath(targetPane);
+    codexAppClient = new CodexAppServerClient({
+      sessionName,
+      workingDir: panePath,
+      bridgeDir: codexBridgeDir(),
+      preferredModel: await resolveProviderModel(profile),
+      callbacks: {
+        onPendingRequest: async (request) => {
+          await emitCodexPendingRequest(request);
+        },
+        onTurnCompleted: async (update) => {
+          resetActiveMenuState();
+          const metadata = codexMetadata();
+          if (update.status === "failed") {
+            latestReply = update.error ?? "Codex request failed.";
+            await runtime.emitEvent({
+              eventType: "task_failed",
+              body: latestReply,
+              status: "failed",
+              metadata
+            });
+          } else {
+            const body = update.text || (update.status === "interrupted" ? "Codex stopped the current turn." : undefined);
+            if (body) {
+              latestReply = body;
+              await runtime.emitEvent({
+                eventType: "text_output",
+                body,
+                metadata
+              });
+            }
+          }
+          await runtime.emitEvent({
+            eventType: "need_user_input",
+            status: "waiting_input",
+            metadata
+          });
+        },
+        onError: async (message) => {
+          latestReply = message;
+          await runtime.sendText(undefined, message);
+        }
+      }
+    });
+  }
+
+  await codexAppClient.start();
+  return codexAppClient;
+}
+
+function codexMetadata(): Record<string, unknown> {
+  const status = codexAppClient?.status;
+  return {
+    provider: "codex",
+    interactive: true,
+    transport: "app-server",
+    model: status?.currentModel ?? status?.preferredModel,
+    contextUsedTokens: status?.contextUsedTokens,
+    contextWindowTokens: status?.contextWindowTokens,
+    threadId: status?.threadId
+  };
+}
+
+async function emitCodexPendingRequest(request: CodexPendingRequest): Promise<void> {
+  const menuId = request.requestId;
+  if (request.kind === "toolInput") {
+    const items: Array<{
+      id: string;
+      label: string;
+      description?: string;
+      isInput?: boolean;
+      inputPlaceholder?: string;
+    }> = request.options.length > 0
+      ? request.options.map((option) => ({
+          id: option.id,
+          label: option.label,
+          description: option.description
+        }))
+      : [
+          {
+            id: "__submit__",
+            label: "Submit",
+            isInput: true,
+            inputPlaceholder: "Enter your response"
+          }
+        ];
+    items.push({
+      id: "__cancel__",
+      label: "Cancel"
+    });
+    activeMenuId = menuId;
+    lastMenuItemsHash = items.map((item) => item.id).join("|");
+    activeMenuSelectedIndex = undefined;
+    latestReply = request.body;
+    await runtime.emitTuiMenu(menuId, request.title, items, request.body);
+    return;
+  }
+
+  const items = [
+    {
+      id: "__allow__",
+      label: "Allow"
+    },
+    ...(request.allowForSession
+      ? [{
+          id: "__allow_session__",
+          label: "Allow for session"
+        }]
+      : []),
+    {
+      id: "__cancel__",
+      label: "Cancel"
+    }
+  ];
+  activeMenuId = menuId;
+  lastMenuItemsHash = items.map((item) => item.id).join("|");
+  activeMenuSelectedIndex = undefined;
+  latestReply = request.body;
+  await runtime.emitTuiMenu(menuId, request.title, items, request.body);
+}
+
+async function dispatchCodexAppPrompt(prompt: string): Promise<void> {
+  const client = await ensureCodexAppClient();
+  if (client.isTurnActive) {
+    await runtime.sendText(undefined, "Codex is still working on the previous request.");
+    return;
+  }
+
+  if (prompt.startsWith("/")) {
+    await dispatchCodexSlashCommand(prompt);
+    return;
+  }
+
+  lastUserPrompt = prompt;
+  lastSentText = prompt;
+  lastPromptKey = "";
+  await runtime.emitEvent({
+    eventType: "task_running",
+    body: "Codex is working on your request.",
+    status: "busy",
+    metadata: codexMetadata()
+  });
+  await client.startTurn(prompt);
+}
+
+async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
+  const normalized = prompt.trim();
+  if (normalized !== "/model") {
+    await runtime.sendText(undefined, "Codex interactive mode currently supports /model only.");
+    return;
+  }
+
+  const client = await ensureCodexAppClient();
+  const models = await client.listModels();
+  if (models.length === 0) {
+    await runtime.sendText(undefined, "Codex did not return any selectable models.");
+    return;
+  }
+
+  codexModelMenuItems = models.map((item) => ({
+    id: item.id,
+    label: item.label,
+    description: item.description
+  }));
+  activeMenuId = "codex_model";
+  lastMenuItemsHash = codexModelMenuItems.map((item) => item.id).join("|");
+  activeMenuSelectedIndex = models.findIndex((item) =>
+    item.id === client.status.currentModel || item.id === client.status.preferredModel
+  );
+  latestReply = "Select Codex model";
+  await runtime.emitTuiMenu(
+    "codex_model",
+    "Select Model",
+    codexModelMenuItems.map((item) => ({
+      id: item.id,
+      label: item.label,
+      description: item.description
+    }))
+  );
+}
+
 runtime.onCommand(async (command) => {
+  if (usesCodexAppServer()) {
+    const client = await ensureCodexAppClient();
+    switch (command.type) {
+      case "status": {
+        const status = client.status;
+        await runtime.sendText(
+          undefined,
+          latestReply || [
+            `Attached to ${sessionName}.`,
+            status.threadId ? `Thread: ${status.threadId}` : undefined,
+            status.currentModel || status.preferredModel ? `Model: ${status.currentModel ?? status.preferredModel}` : undefined,
+            status.contextUsedTokens && status.contextWindowTokens
+              ? `Context: ${status.contextUsedTokens}/${status.contextWindowTokens}`
+              : undefined
+          ].filter(Boolean).join("\n")
+        );
+        return;
+      }
+      case "stop":
+        if (await client.interruptActiveTurn()) {
+          await runtime.emitEvent({
+            eventType: "task_running",
+            body: "Stopping Codex turn.",
+            status: "busy",
+            metadata: codexMetadata()
+          });
+        } else {
+          await runtime.sendText(undefined, "Codex is already idle.");
+        }
+        return;
+      case "retry":
+        if (!lastUserPrompt) {
+          await runtime.sendText(undefined, "Nothing to retry yet.");
+          return;
+        }
+        await dispatchCodexAppPrompt(lastUserPrompt);
+        return;
+      case "approve":
+        if (await client.approvePendingRequest(command.text?.trim() === "session" ? "session" : "turn")) {
+          resetActiveMenuState();
+          await runtime.emitEvent({
+            eventType: "task_running",
+            body: "Codex is continuing the current request.",
+            status: "busy",
+            metadata: codexMetadata()
+          });
+        } else {
+          await runtime.sendText(undefined, "No pending Codex approval request.");
+        }
+        return;
+      case "send_text":
+        if (!command.text?.trim()) {
+          await runtime.sendText(undefined, "Please send a non-empty instruction.");
+          return;
+        }
+        await dispatchCodexAppPrompt(command.text.trim());
+        return;
+      case "send_key":
+        await runtime.sendText(undefined, "Special keys are not used in Codex app-server mode.");
+        return;
+    }
+  }
+
   const targetPane = await resolvePane();
 
   if (isInteractiveProfile(profile)) {
@@ -866,6 +1124,97 @@ runtime.onCommand(async (command) => {
 });
 
 runtime.onTuiMenuSelect(async (select) => {
+  if (usesCodexAppServer()) {
+    const client = await ensureCodexAppClient();
+    if (select.menuId !== activeMenuId) {
+      await runtime.sendText(undefined, "Menu selection timed out or menu changed.");
+      return;
+    }
+
+    if (select.menuId === "codex_model") {
+      if (select.itemId === "__cancel__") {
+        resetActiveMenuState();
+        await runtime.emitEvent({
+          eventType: "need_user_input",
+          status: "waiting_input",
+          metadata: codexMetadata()
+        });
+        return;
+      }
+      const selected = codexModelMenuItems.find((item) => item.id === select.itemId);
+      if (!selected) {
+        await runtime.sendText(undefined, "Invalid Codex model selected.");
+        return;
+      }
+      await client.setPreferredModel(selected.id);
+      latestReply = `Codex model set to ${selected.label}.`;
+      resetActiveMenuState();
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: latestReply,
+        metadata: codexMetadata()
+      });
+      await runtime.emitEvent({
+        eventType: "need_user_input",
+        status: "waiting_input",
+        metadata: codexMetadata()
+      });
+      return;
+    }
+
+    const pendingRequest = client.getPendingRequest();
+    if (!pendingRequest || pendingRequest.requestId !== select.menuId) {
+      await runtime.sendText(undefined, "Codex request is no longer pending.");
+      return;
+    }
+
+    if (pendingRequest.kind === "toolInput") {
+      if (select.itemId === "__cancel__") {
+        await client.declinePendingRequest();
+        resetActiveMenuState();
+        await runtime.emitEvent({
+          eventType: "task_running",
+          body: "Codex is continuing the current request.",
+          status: "busy",
+          metadata: codexMetadata()
+        });
+        return;
+      }
+      if (select.itemId === "__submit__") {
+        await client.answerPendingInput(select.inputValue ?? "");
+      } else {
+        await client.selectPendingOption(select.itemId);
+      }
+      resetActiveMenuState();
+      await runtime.emitEvent({
+        eventType: "task_running",
+        body: "Codex is continuing the current request.",
+        status: "busy",
+        metadata: codexMetadata()
+      });
+      return;
+    }
+
+    if (select.itemId === "__cancel__") {
+      await client.declinePendingRequest();
+    } else if (select.itemId === "__allow_session__") {
+      await client.approvePendingRequest("session");
+    } else if (select.itemId === "__allow__") {
+      await client.approvePendingRequest("turn");
+    } else {
+      await runtime.sendText(undefined, "Invalid Codex approval action.");
+      return;
+    }
+    resetActiveMenuState();
+    await runtime.emitEvent({
+      eventType: "task_running",
+      body: "Codex is continuing the current request.",
+      status: "busy",
+      metadata: codexMetadata()
+    });
+    return;
+  }
+
   const targetPane = await resolvePane();
 
   if (select.menuId !== activeMenuId) {
@@ -928,6 +1277,26 @@ runtime.onTuiMenuSelect(async (select) => {
 
 runtime.connect()
   .then(async () => {
+    if (usesCodexAppServer()) {
+      await ensureCodexAppClient();
+      await runtime.emitEvent({
+        eventType: "task_running",
+        body: `Attached to ${sessionName}.`,
+        status: "busy",
+        metadata: {
+          sessionName,
+          profile,
+          codexMode,
+          transport: "app-server"
+        }
+      });
+      await runtime.emitEvent({
+        eventType: "need_user_input",
+        status: "waiting_input",
+        metadata: codexMetadata()
+      });
+      return;
+    }
     await ensureSessionBound();
     await capturePane();
     poller = setInterval(() => {
@@ -944,6 +1313,10 @@ runtime.connect()
 async function shutdown(): Promise<void> {
   if (poller) {
     clearInterval(poller);
+  }
+  if (codexAppClient) {
+    await codexAppClient.close();
+    codexAppClient = undefined;
   }
   await runtime.close();
 }
@@ -979,7 +1352,7 @@ function defaultManagedCommand(currentProfile: BridgeProfile, currentCodexMode: 
     return buildOpenCodeInteractiveCommand();
   }
   if (currentProfile === "codex") {
-    return currentCodexMode === "exec" ? "sh" : "codex --no-alt-screen";
+    return "sh";
   }
   if (currentProfile === "copilot") {
     return "copilot --allow-all";

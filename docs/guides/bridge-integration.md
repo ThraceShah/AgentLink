@@ -46,22 +46,22 @@ AGENT_EVENT {"eventType":"need_approval","title":"Review patch","body":"Please a
 
 - 默认把联系人显示名设置为 tmux session 名
 - 默认把 agent 类型标识为 `codex`
-- 默认使用 `TMUX_CODEX_MODE=exec`
-- 在 `exec` 模式下，tmux session 作为 shell 容器，`send_text` 会触发 `codex exec`
-- 通过 `--output-last-message` 稳定提取最终回复，不依赖向 TUI 注入按键后的屏幕解析
-- 对 pane 输出做增量提取，而不是每次发送整屏摘要
-- 尽量过滤输入回显和常见过程噪音
-- 识别常见 approval / input 提示
+- 默认使用 `TMUX_CODEX_MODE=interactive`
+- 在默认交互式模式下，tmux session 仅保留工作目录与生命周期绑定，真实对话由 bridge 本地启动的 `codex app-server` 长会话子进程处理
+- `send_text` 会复用同一个 Codex thread，普通消息通过 `turn/start` 发送，`stop` 会改走 `turn/interrupt`
+- `/model` 会通过 `model/list` 拉取真实模型列表，并映射为 Android 可点击菜单
+- 识别 app-server 中的 approval / input request，并继续复用 Android 的通用 dialog / menu 链路
 
 模式说明：
 
 - `TMUX_CODEX_MODE=exec`
-  - 推荐默认值
-  - 更稳定
-  - 已完成真实端到端验证
+  - 显式 fallback
+  - 适合保留旧的非交互单轮执行路径
+  - 仍会本地 `spawn()` `codex exec`，避免 detached tmux shell 中的 stdin / JSON 卡住
 - `TMUX_CODEX_MODE=interactive`
-  - 保留为兼容回退
-  - 依赖交互式 TUI 输入注入，稳定性较差
+  - 当前默认值
+  - 基于 `codex app-server`，而不是解析 detached tmux 的 TUI 屏幕
+  - 已完成真实端到端验证，包括 Android `/model` 菜单点击与模型切换后继续对话
 
 推荐启动方式：
 
@@ -75,10 +75,10 @@ npm run dev:codex-bridge
 TMUX_BRIDGE_PROFILE=codex TMUX_SESSION=my-codex npm run dev:tmux-agent
 ```
 
-若要切回交互式 TUI 模式：
+若要切回旧的 `exec` 降级模式：
 
 ```bash
-TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=interactive TMUX_COMMAND='codex --no-alt-screen' npm run dev:tmux-agent
+TMUX_BRIDGE_PROFILE=codex TMUX_CODEX_MODE=exec npm run dev:tmux-agent
 ```
 
 ## 通过 Hub 创建新会话
@@ -141,10 +141,11 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 
 ### codex
 
-- 默认仍使用 `codex exec --json`
-- `tmux-agent` 会直接在本地 `spawn()` `codex exec` 子进程，而不是再通过 detached tmux shell 转一层，避免 stdin / JSON 组合在 tmux 内卡住
-- 交互式 `codex --no-alt-screen` 解析器已在 bridge 中预留，但当前机器上的 detached tmux 会话仍会遇到上游 TUI 不出屏的问题，因此 Android 默认不切到该模式
-- `temp_docs/codex_bridge/<session>/` 会保留 prompt、reply、stderr 与 status 文件，便于排查失败或确认最终返回文本
+- 默认使用 `codex app-server` 长会话协议，而不是 `codex exec --json`
+- bridge 会把 Codex 的 thread id、当前模型与工作目录持久化到 `temp_docs/codex_bridge/<session>/app-server-state.json`，bridge 重启后会优先 `thread/resume`
+- detached tmux 下 `codex --no-alt-screen` 之所以看起来“空白”，根因是 Codex 会先等待终端能力握手；当前默认实现不再依赖这条 TUI 截屏路径
+- Android 已验证以下闭环：普通消息、完成通知、`/model` 真实菜单弹出、菜单 `Cancel`、模型切换后继续多轮对话
+- 若显式设置 `TMUX_CODEX_MODE=exec`，bridge 仍会保留本地 `spawn()` `codex exec` fallback，并继续在 `temp_docs/codex_bridge/<session>/` 写 prompt、reply、stderr 与 status 文件
 
 ### copilot
 
@@ -175,7 +176,7 @@ Android 首页的“新增会话”按钮实际会调用这些接口。
 - `opencode`：真实交互式 session，已支持菜单、纯文本 modal、输入型 dialog 与完成通知
 - `copilot`：真实交互式 session，已支持 `/model`、`/session` 菜单和 `/context`、`/compact` 等纯文本结果回传
 - `qwen`：真实交互式 session，已支持普通对话完成态、`/model` 菜单与 `/status` 纯文本 dialog 回传
-- `codex`：默认仍走 JSON exec bridge；交互式分支仅作为显式实验路径保留
+- `codex`：默认走 app-server 交互式长会话；`exec` 仅作为显式 fallback 保留
 
 这意味着当前已经具备“先显示用户消息，再在回复完成后稳定落一条最终 agent 消息”的 IM 体验；bridge 仍会保留对流式输出的内部解析能力，用于提取最终文本与元数据。
 
