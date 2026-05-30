@@ -329,6 +329,7 @@ function renderSlashPanel() {
 }
 
 function renderProfiles() {
+  const previousProfileId = els.profileSelect.value;
   els.profileSelect.replaceChildren();
   for (const profile of state.profiles) {
     const option = document.createElement("option");
@@ -336,7 +337,16 @@ function renderProfiles() {
     option.textContent = profile.label;
     els.profileSelect.append(option);
   }
-  els.workdirInput.value = state.sessionConfig.workspaceRootHint || "~/code";
+  if (previousProfileId) {
+    els.profileSelect.value = previousProfileId;
+  }
+}
+
+function openSessionDialog() {
+  if (!els.workdirInput.value.trim()) {
+    els.workdirInput.value = state.sessionConfig.workspaceRootHint || "~/code";
+  }
+  els.sessionDialog.showModal();
 }
 
 function eventsFor(agentId) {
@@ -632,7 +642,7 @@ function toast(message) {
 
 els.refreshButton.addEventListener("click", () => refreshAll());
 els.notifyButton.addEventListener("click", requestNotifications);
-els.newSessionButton.addEventListener("click", () => els.sessionDialog.showModal());
+els.newSessionButton.addEventListener("click", openSessionDialog);
 els.cancelSessionButton.addEventListener("click", () => els.sessionDialog.close());
 els.sessionForm.addEventListener("submit", createSession);
 els.agentSearch.addEventListener("input", renderAgents);

@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- 修复移动 Web 原型新建会话弹窗：前台轮询刷新 profiles/session-config 时不再重写 `workdir` 输入框，避免用户在手机浏览器输入路径时被重置。
 - 新增移动 Web 原型客户端：Hub 现在可直接托管 `apps/mobile-web`，通过局域网或 Tailscale 地址访问 `/mobile/` 即可在手机浏览器中验证会话列表、聊天详情、命令发送、slash command、TUI 弹窗、特殊按键、会话创建/删除与 Web Notification 降级通知能力。
 - 将 Hub 部署方式从 Docker 容器改为本机 systemd Node 服务，删除 Docker 镜像入口；一键更新脚本现在直接安装依赖、构建项目、刷新服务并验证健康状态，避免容器隔离导致本机 provider CLI 不可用。
 - 将 `qwen`、`copilot` 接入默认真实交互式 session：Hub 新建会话时不再先落到 `sh` 容器，tmux bridge 会直接绑定原生 CLI，会话内普通消息与 slash command 共享同一个长期驻留 session。
