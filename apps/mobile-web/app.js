@@ -93,11 +93,7 @@ async function refreshAll({ silent = false } = {}) {
 
 function mergeBootstrap(bootstrap) {
   state.agents = [...(bootstrap.agents ?? [])].sort(sortAgents);
-  const next = new Map(state.events.map((event) => [event.id, event]));
-  for (const event of bootstrap.events ?? []) {
-    next.set(event.id, event);
-  }
-  state.events = [...next.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  state.events = [...(bootstrap.events ?? [])].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 function connectSocket() {
@@ -557,6 +553,8 @@ async function deleteSelectedSession() {
       method: "POST",
       body: JSON.stringify({ sessionName: agent.agentId })
     });
+    state.agents = state.agents.filter((item) => item.agentId !== agent.agentId);
+    state.events = state.events.filter((event) => event.agentId !== agent.agentId);
     showList();
     await refreshAll();
   } catch (error) {

@@ -112,4 +112,67 @@ describe("hub integration", () => {
     expect(payload.workspaceRootHint).toMatch(/\S+/);
     expect(payload.hostUsername).toMatch(/\S+/);
   });
+
+  it("clears session history when deleting a session", async () => {
+    const hub = createHubServer({
+      host: "127.0.0.1",
+      port: 0,
+      dataDir: "temp_docs/test-hub-data"
+    });
+    started.push(hub);
+    const address = await hub.start();
+    const wsUrl = `ws://${address.host}:${address.port}/ws`;
+    const httpUrl = `http://${address.host}:${address.port}`;
+
+    const agent = new WebSocket(wsUrl);
+    await new Promise<void>((resolve) => agent.once("open", () => resolve()));
+    agent.send(JSON.stringify({
+      type: "hello",
+      role: "agent",
+      agent: {
+        agentId: "webtest",
+        displayName: "webtest",
+        kind: "demo",
+        capabilities: ["send_text"],
+        quickCommands: []
+      }
+    }));
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    agent.send(JSON.stringify({
+      type: "agent_event",
+      event: {
+        agentId: "webtest",
+        eventType: "text_output",
+        body: "old history"
+      }
+    }));
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    const beforeDelete = await fetch(`${httpUrl}/api/bootstrap`);
+    const beforePayload = await beforeDelete.json() as {
+      agents: Array<{ agentId: string }>;
+      events: Array<{ agentId: string; body?: string }>;
+    };
+    expect(beforePayload.agents.some((item) => item.agentId === "webtest")).toBe(true);
+    expect(beforePayload.events.some((item) => item.agentId === "webtest" && item.body === "old history")).toBe(true);
+
+    const deleteResponse = await fetch(`${httpUrl}/api/sessions/delete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionName: "webtest" })
+    });
+    expect(deleteResponse.ok).toBe(true);
+    await new Promise<void>((resolve) => agent.once("close", () => resolve()));
+
+    const afterDelete = await fetch(`${httpUrl}/api/bootstrap`);
+    const afterPayload = await afterDelete.json() as {
+      agents: Array<{ agentId: string }>;
+      events: Array<{ agentId: string; body?: string }>;
+    };
+    expect(afterPayload.agents.some((item) => item.agentId === "webtest")).toBe(false);
+    expect(afterPayload.events.some((item) => item.agentId === "webtest")).toBe(false);
+  });
 });

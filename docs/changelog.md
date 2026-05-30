@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- 修复移动 Web 删除会话后的历史残留：Web bootstrap 同步现在以 Hub 快照为准替换本地时间线，删除成功后立即清理本地 agent/events；Hub 删除会话时也会关闭对应 agent WebSocket，避免旧 bridge 在删除窗口继续写入事件。
 - 修复移动 Web 原型新建会话弹窗：前台轮询刷新 profiles/session-config 时不再重写 `workdir` 输入框，避免用户在手机浏览器输入路径时被重置。
 - 新增移动 Web 原型客户端：Hub 现在可直接托管 `apps/mobile-web`，通过局域网或 Tailscale 地址访问 `/mobile/` 即可在手机浏览器中验证会话列表、聊天详情、命令发送、slash command、TUI 弹窗、特殊按键、会话创建/删除与 Web Notification 降级通知能力。
 - 将 Hub 部署方式从 Docker 容器改为本机 systemd Node 服务，删除 Docker 镜像入口；一键更新脚本现在直接安装依赖、构建项目、刷新服务并验证健康状态，避免容器隔离导致本机 provider CLI 不可用。

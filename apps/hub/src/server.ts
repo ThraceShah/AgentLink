@@ -143,6 +143,11 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
           sessionName?: string;
         };
         const result = await sessionManager.deleteSession(payload.sessionName ?? "");
+        const agentSocket = agentSockets.get(result.sessionName);
+        if (agentSocket) {
+          agentSockets.delete(result.sessionName);
+          agentSocket.close(1000, "session deleted");
+        }
         store.clearAgent(result.sessionName);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ sessionName: result.sessionName, removedAgentId: result.sessionName }));
