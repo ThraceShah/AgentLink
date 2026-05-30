@@ -1,0 +1,20 @@
+FROM redis:8-alpine
+
+RUN apk add --no-cache nodejs npm procps tmux ca-certificates git openssh-client
+
+WORKDIR /app
+
+COPY package.json package-lock.json tsconfig.json ./
+COPY apps ./apps
+COPY agents ./agents
+COPY packages ./packages
+
+RUN npm ci
+
+EXPOSE 8787
+
+ENV HUB_HOST=0.0.0.0 \
+  HUB_PORT=8787 \
+  HUB_DATA_DIR=/app/data
+
+CMD ["npm", "run", "dev:hub"]

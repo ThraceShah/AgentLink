@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- 新增 Hub Docker 镜像、systemd 系统服务模板与一键更新脚本，支持将服务端配置为开机自启的系统服务，并通过健康检查验证更新结果。
 - 将 `qwen`、`copilot` 接入默认真实交互式 session：Hub 新建会话时不再先落到 `sh` 容器，tmux bridge 会直接绑定原生 CLI，会话内普通消息与 slash command 共享同一个长期驻留 session。
 - 新增多 provider 交互式弹窗解析：`qwen` 的 `/model` 与 `copilot` 的 `/model`、`/session` 现可复用 Android 通用 `tui_menu` dialog；`copilot` 的 `/context`、`/compact` 与 `qwen` 的命令完成结果也会在 provider 回到输入态后落为最终消息。
 - 将 `codex` 默认模式切到真实长期交互式 session：bridge 不再尝试解析 detached tmux 中空白的 Codex TUI，而是改用 `codex app-server` JSON-RPC 长会话协议驱动 thread/start、thread/resume、turn/start、turn/interrupt 与 `model/list`。

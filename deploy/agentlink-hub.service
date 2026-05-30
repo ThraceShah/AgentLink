@@ -1,0 +1,31 @@
+[Unit]
+Description=AgentLink Hub container
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+TimeoutStartSec=0
+ExecStartPre=-/usr/bin/docker rm -f agentlink-hub
+ExecStart=/usr/bin/docker run --name agentlink-hub --rm \
+  --network host \
+  --user __RUN_UID__:__RUN_GID__ \
+  --workdir /app \
+  -e HOME=__RUN_HOME__ \
+  -e USER=__RUN_USER__ \
+  -e LOGNAME=__RUN_USER__ \
+  -e HUB_HOST=__HUB_HOST__ \
+  -e HUB_PORT=__HUB_PORT__ \
+  -e HUB_DATA_DIR=/app/data \
+  -e SESSION_WORKDIR_ROOT_RELATIVE=__SESSION_WORKDIR_ROOT_RELATIVE__ \
+  -v __RUN_HOME__:__RUN_HOME__ \
+  -v /tmp:/tmp \
+  -v __PROJECT_ROOT__/data:/app/data \
+  __IMAGE_NAME__
+ExecStop=/usr/bin/docker stop agentlink-hub
+
+[Install]
+WantedBy=multi-user.target
