@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#101418">
+    <title>AgentLink Mobile</title>
+    <link rel="stylesheet" href="/mobile/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="screen screen-list" id="list-screen">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="host-label">Hub</p>
+            <h1>AgentLink</h1>
+          </div>
+          <div class="top-actions">
+            <button class="icon-button" id="notify-button" type="button" title="Enable notifications">N</button>
+            <button class="icon-button" id="new-session-button" type="button" title="New session">+</button>
+          </div>
+        </header>
+        <div class="status-row">
+          <span class="status-pill" id="connection-status">Syncing</span>
+          <button class="text-button" id="refresh-button" type="button">Refresh</button>
+        </div>
+        <div class="search-wrap">
+          <input id="agent-search" type="search" placeholder="Search sessions">
+        </div>
+        <section class="agent-list" id="agent-list"></section>
+      </section>
+
+      <section class="screen screen-chat hidden" id="chat-screen">
+        <header class="chat-header">
+          <button class="icon-button" id="back-button" type="button" title="Back">‹</button>
+          <div class="chat-title">
+            <h2 id="chat-title">Session</h2>
+            <p id="chat-subtitle">offline</p>
+          </div>
+          <button class="icon-button danger" id="delete-session-button" type="button" title="Delete session">×</button>
+        </header>
+        <section class="timeline" id="timeline"></section>
+        <section class="composer">
+          <div class="slash-panel hidden" id="slash-panel"></div>
+          <div class="keypad hidden" id="keypad">
+            <button type="button" data-key="up">↑</button>
+            <button type="button" data-key="down">↓</button>
+            <button type="button" data-key="left">←</button>
+            <button type="button" data-key="right">→</button>
+            <button type="button" data-key="enter">Enter</button>
+            <button type="button" data-key="esc">Esc</button>
+            <button type="button" data-key="tab">Tab</button>
+            <button type="button" data-key="backspace">Bksp</button>
+          </div>
+          <div class="composer-row">
+            <textarea id="message-input" rows="1" placeholder="Send text or type / for commands"></textarea>
+            <button id="send-button" type="button">Send</button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="session-dialog">
+      <form method="dialog" class="dialog-card" id="session-form">
+        <h3>New Session</h3>
+        <label>
+          Profile
+          <select id="profile-select"></select>
+        </label>
+        <label>
+          Session name
+          <input id="session-name-input" autocomplete="off" required>
+        </label>
+        <label>
+          Workdir
+          <input id="workdir-input" autocomplete="off" required>
+        </label>
+        <div class="dialog-actions">
+          <button type="button" class="text-button" id="cancel-session-button">Cancel</button>
+          <button type="submit">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="tui-dialog">
+      <form method="dialog" class="dialog-card" id="tui-form">
+        <h3 id="tui-title">Menu</h3>
+        <p id="tui-body"></p>
+        <div id="tui-items"></div>
+        <div class="dialog-actions">
+          <button type="button" class="text-button" id="tui-cancel-button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+
+    <template id="agent-card-template">
+      <button class="agent-card" type="button">
+        <span class="avatar"></span>
+        <span class="agent-main">
+          <strong></strong>
+          <small></small>
+        </span>
+        <span class="agent-meta"></span>
+      </button>
+    </template>
+
+    <script src="/mobile/app.js" defer></script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 
@@ -25,6 +25,20 @@ type ConnectionContext = {
   agentId?: string;
 };
 
+const mobileWebRoot = path.resolve("apps", "mobile-web");
+const staticMimeTypes: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon"
+};
+
 export function createHubServer(options: CreateHubServerOptions = {}) {
   const host = options.host ?? process.env.HUB_HOST ?? "0.0.0.0";
   const port = options.port ?? Number(process.env.HUB_PORT ?? 8787);
@@ -41,16 +55,28 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${host}:${port}`}`);
 
       if (req.method === "GET" && url.pathname === "/healthz") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", time: nowIso() }));
-      return;
-    }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ status: "ok", time: nowIso() }));
+        return;
+      }
 
-    if (req.method === "GET" && url.pathname === "/api/bootstrap") {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(store.getBootstrap()));
-      return;
-    }
+      if (req.method === "GET" && url.pathname === "/mobile") {
+        res.writeHead(302, { location: "/mobile/" });
+        res.end();
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname.startsWith("/mobile/")) {
+        if (await serveMobileWeb(url.pathname, res)) {
+          return;
+        }
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/bootstrap") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(store.getBootstrap()));
+        return;
+      }
 
     if (req.method === "GET" && url.pathname === "/api/agent-profiles") {
       const profiles = await sessionManager.listProfiles();
@@ -506,6 +532,33 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       });
     }
   };
+}
+
+async function serveMobileWeb(pathname: string, res: http.ServerResponse): Promise<boolean> {
+  const relativePath = pathname === "/mobile/"
+    ? "index.html"
+    : decodeURIComponent(pathname.replace(/^\/mobile\/?/, ""));
+  const candidate = path.resolve(mobileWebRoot, relativePath);
+
+  if (!candidate.startsWith(`${mobileWebRoot}${path.sep}`) && candidate !== mobileWebRoot) {
+    res.writeHead(403, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "forbidden" }));
+    return true;
+  }
+
+  try {
+    const info = await stat(candidate);
+    const filePath = info.isDirectory() ? path.join(candidate, "index.html") : candidate;
+    const content = await readFile(filePath);
+    res.writeHead(200, {
+      "content-type": staticMimeTypes[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
+      "cache-control": "no-store"
+    });
+    res.end(content);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
