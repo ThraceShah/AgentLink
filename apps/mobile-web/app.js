@@ -265,9 +265,10 @@ function renderChat() {
 function renderEvent(event, agent) {
   const item = document.createElement("article");
   const isUser = event.eventType === "user_command";
+  const displayText = eventDisplayText(event) ?? event.eventType;
   item.className = `message ${isUser ? "user" : "agent"}`;
   item.title = "Tap to copy";
-  item.addEventListener("click", () => copyText(event.body || event.title || ""));
+  item.addEventListener("click", () => copyText(displayText));
 
   const meta = document.createElement("div");
   meta.className = "meta";
@@ -275,7 +276,7 @@ function renderEvent(event, agent) {
   item.append(meta);
 
   const body = document.createElement("p");
-  body.textContent = event.body || event.title || event.eventType;
+  body.textContent = displayText;
   item.append(body);
 
   if (event.artifact?.kind === "image") {
@@ -368,7 +369,22 @@ function showList() {
 }
 
 function isVisibleEvent(event) {
-  return !["agent_started", "agent_stopped", "task_running", "task_completed"].includes(event.eventType);
+  if (["agent_started", "agent_stopped", "task_running", "task_completed"].includes(event.eventType)) {
+    return false;
+  }
+  if (event.eventType === "user_command" && !event.body?.trim()) {
+    return false;
+  }
+  return event.artifact != null || eventDisplayText(event) != null;
+}
+
+function eventDisplayText(event) {
+  const body = event.body?.trim();
+  if (body) {
+    return body;
+  }
+  const title = event.title?.trim();
+  return title || null;
 }
 
 async function sendCurrentMessage() {
@@ -573,9 +589,13 @@ function maybeNotify(event) {
   if (!["text_output", "need_user_input", "need_approval", "task_failed", "artifact_generated", "image_available"].includes(event.eventType)) {
     return;
   }
+  const body = eventDisplayText(event);
+  if (!body && !event.artifact) {
+    return;
+  }
   const agent = state.agents.find((item) => item.agentId === event.agentId);
   const notification = new Notification(agent?.displayName || "AgentLink", {
-    body: event.body || event.title || event.eventType,
+    body: body || event.artifact?.caption || event.artifact?.fileName || event.eventType,
     tag: event.id
   });
   notification.onclick = () => {
