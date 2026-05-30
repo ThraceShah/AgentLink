@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- 修复 Codex app-server 会话重建后离线的问题：bridge 不再把旧 `threadId` 从本地 state 直接视为有效线程，遇到 Codex 返回 `thread not found` 时会清理旧 state、重新创建 thread 并重试当前 turn，避免同名 Web 会话创建后发送消息导致 bridge 崩溃离线。
 - 修复移动 Web 时间线展示：无正文且无产物的 `need_user_input` 现在只作为会话等待输入状态，不再显示成聊天消息，也不会触发浏览器通知。
 - 修复移动 Web 删除会话后的历史残留：Web bootstrap 同步现在以 Hub 快照为准替换本地时间线，删除成功后立即清理本地 agent/events；Hub 删除会话时也会关闭对应 agent WebSocket，避免旧 bridge 在删除窗口继续写入事件。
 - 修复移动 Web 原型新建会话弹窗：前台轮询刷新 profiles/session-config 时不再重写 `workdir` 输入框，避免用户在手机浏览器输入路径时被重置。

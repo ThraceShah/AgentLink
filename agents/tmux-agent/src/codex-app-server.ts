@@ -271,26 +271,21 @@ export class CodexAppServerClient {
       status: "inProgress"
     };
 
-    await this.request("turn/start", {
-      threadId: this.threadId,
-      input: [
-        {
-          type: "text",
-          text: prompt,
-          text_elements: []
-        }
-      ],
-      cwd: null,
-      approvalPolicy: null,
-      approvalsReviewer: null,
-      sandboxPolicy: null,
-      model: this.preferredModel ?? null,
-      effort: null,
-      summary: null,
-      personality: null,
-      outputSchema: null,
-      collaborationMode: null
-    });
+    try {
+      await this.startTurnRequest(prompt);
+    } catch (error) {
+      if (!isThreadNotFoundError(error)) {
+        this.activeTurn = undefined;
+        throw error;
+      }
+      await this.resetThreadState();
+      await this.ensureThread();
+      if (!this.threadId) {
+        this.activeTurn = undefined;
+        throw new Error("Codex thread is not ready after recovery.");
+      }
+      await this.startTurnRequest(prompt);
+    }
   }
 
   async interruptActiveTurn(): Promise<boolean> {
@@ -530,6 +525,9 @@ export class CodexAppServerClient {
             ? `Codex resume failed for ${this.sessionName}: ${error.message}`
             : `Codex resume failed for ${this.sessionName}.`
         );
+        if (isThreadNotFoundError(error)) {
+          await this.resetThreadState();
+        }
       }
     }
 
@@ -568,7 +566,6 @@ export class CodexAppServerClient {
     try {
       const content = await readFile(this.statePath, "utf8");
       const parsed = JSON.parse(content) as StoredCodexState;
-      this.threadId = this.threadId ?? parsed.threadId;
       this.preferredModel = this.preferredModel ?? parsed.preferredModel;
       this.currentModel = this.currentModel ?? parsed.currentModel ?? parsed.preferredModel;
       this.approvalPolicy = this.approvalPolicy ?? parsed.approvalPolicy;
@@ -587,6 +584,36 @@ export class CodexAppServerClient {
       approvalPolicy: this.approvalPolicy
     };
     await writeFile(this.statePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  }
+
+  private async resetThreadState(): Promise<void> {
+    this.threadId = undefined;
+    this.activeTurn = undefined;
+    this.pendingRequest = undefined;
+    await rm(this.statePath, { force: true });
+  }
+
+  private async startTurnRequest(prompt: string): Promise<void> {
+    await this.request("turn/start", {
+      threadId: this.threadId,
+      input: [
+        {
+          type: "text",
+          text: prompt,
+          text_elements: []
+        }
+      ],
+      cwd: null,
+      approvalPolicy: null,
+      approvalsReviewer: null,
+      sandboxPolicy: null,
+      model: this.preferredModel ?? null,
+      effort: null,
+      summary: null,
+      personality: null,
+      outputSchema: null,
+      collaborationMode: null
+    });
   }
 
   private async handleLine(line: string): Promise<void> {
@@ -850,4 +877,8 @@ function formatRpcError(error: JsonRpcError): string {
     return "Codex app-server request failed.";
   }
   return error.code == null ? error.message : `${error.message} (code ${error.code})`;
+}
+
+function isThreadNotFoundError(error: unknown): boolean {
+  return error instanceof Error && /thread not found/i.test(error.message);
 }
