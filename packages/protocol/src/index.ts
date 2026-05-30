@@ -19,6 +19,11 @@ export const eventTypeSchema = z.enum([
   "artifact_generated",
   "image_available",
   "text_output",
+  "process_started",
+  "process_delta",
+  "process_completed",
+  "assistant_delta",
+  "assistant_completed",
   "user_command",
   "agent_stopped"
 ]);
@@ -290,7 +295,13 @@ export function deriveStatusFromEvent(eventType: EventType): AgentStatus | undef
     case "agent_started":
       return "online";
     case "task_running":
+    case "process_started":
+    case "process_delta":
+    case "assistant_delta":
       return "busy";
+    case "assistant_completed":
+    case "process_completed":
+      return "completed";
     case "need_user_input":
     case "need_approval":
       return "waiting_input";

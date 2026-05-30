@@ -258,6 +258,41 @@ textarea {
   white-space: pre-wrap;
 }
 
+.message.process {
+  max-width: 94%;
+  background: #182126;
+}
+
+.message.process.completed {
+  opacity: 0.88;
+}
+
+.process-toggle {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  white-space: normal;
+}
+
+.process-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.process-row {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .message img {
   display: block;
   max-width: 100%;

@@ -61,6 +61,11 @@ export type CodexTurnUpdate = {
   error?: string;
 };
 
+export type CodexProcessUpdate = {
+  title: string;
+  body?: string;
+};
+
 export type CodexApprovalRequest = {
   kind: "commandExecution" | "fileChange" | "permissions";
   requestId: string;
@@ -115,13 +120,13 @@ type PendingInputRequest = {
 
 type Callbacks = {
   onPendingRequest?: (request: CodexPendingRequest) => Promise<void> | void;
+  onProcessUpdate?: (update: CodexProcessUpdate) => Promise<void> | void;
+  onAssistantDelta?: (delta: string, fullText: string) => Promise<void> | void;
   onTurnCompleted?: (update: CodexTurnUpdate) => Promise<void> | void;
   onError?: (message: string) => Promise<void> | void;
 };
 
 const optOutNotificationMethods = [
-  "command/exec/outputDelta",
-  "item/commandExecution/outputDelta",
   "item/fileChange/outputDelta",
   "item/plan/delta",
   "item/reasoning/summaryPartAdded",
@@ -254,6 +259,12 @@ export class CodexAppServerClient {
     this.preferredModel = modelId;
     this.currentModel = modelId;
     await this.persistState();
+  }
+
+  async startNewThread(): Promise<void> {
+    await this.start();
+    await this.resetThreadState();
+    await this.ensureThread();
   }
 
   async startTurn(prompt: string): Promise<void> {
@@ -742,28 +753,61 @@ export class CodexAppServerClient {
         if (this.activeTurn) {
           const turn = objectValue(params.turn);
           this.activeTurn.turnId = stringValue(turn?.id);
+          await this.callbacks.onProcessUpdate?.({
+            title: "Turn started",
+            body: stringValue(turn?.id) ? `Turn: ${stringValue(turn?.id)}` : undefined
+          });
         }
         return;
       case "item/agentMessage/delta":
         if (this.activeTurn) {
-          this.activeTurn.text += stringValue(params.delta) ?? "";
+          const delta = stringValue(params.delta) ?? "";
+          this.activeTurn.text += delta;
+          if (delta) {
+            await this.callbacks.onAssistantDelta?.(delta, this.activeTurn.text);
+          }
         }
         return;
+      case "command/exec/outputDelta":
+      case "item/commandExecution/outputDelta": {
+        const delta = stringValue(params.delta) ?? stringValue(params.output) ?? stringValue(params.text);
+        if (delta) {
+          await this.callbacks.onProcessUpdate?.({
+            title: "Command output",
+            body: delta
+          });
+        }
+        return;
+      }
       case "thread/tokenUsage/updated": {
         const usage = objectValue(params.tokenUsage);
         const total = objectValue(usage?.total);
         this.contextUsedTokens = numberValue(total?.totalTokens);
         this.contextWindowTokens = numberValue(usage?.modelContextWindow);
+        if (this.contextUsedTokens != null && this.contextWindowTokens != null) {
+          await this.callbacks.onProcessUpdate?.({
+            title: "Context updated",
+            body: `${this.contextUsedTokens}/${this.contextWindowTokens} tokens`
+          });
+        }
         return;
       }
       case "model/rerouted":
         this.currentModel = stringValue(params.toModel) ?? this.currentModel;
         await this.persistState();
+        await this.callbacks.onProcessUpdate?.({
+          title: "Model rerouted",
+          body: this.currentModel
+        });
         return;
       case "serverRequest/resolved":
         if (this.pendingRequest && this.pendingRequest.requestId === String(params.requestId ?? "")) {
           this.pendingRequest = undefined;
         }
+        await this.callbacks.onProcessUpdate?.({
+          title: "Request resolved",
+          body: String(params.requestId ?? "")
+        });
         return;
       case "turn/completed":
         await this.handleTurnCompleted(params);

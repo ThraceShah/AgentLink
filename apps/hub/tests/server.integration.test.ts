@@ -175,4 +175,128 @@ describe("hub integration", () => {
     expect(afterPayload.agents.some((item) => item.agentId === "webtest")).toBe(false);
     expect(afterPayload.events.some((item) => item.agentId === "webtest")).toBe(false);
   });
+
+  it("broadcasts transient events without persisting them", async () => {
+    const hub = createHubServer({
+      host: "127.0.0.1",
+      port: 0,
+      dataDir: "temp_docs/test-hub-data"
+    });
+    started.push(hub);
+    const address = await hub.start();
+    const wsUrl = `ws://${address.host}:${address.port}/ws`;
+    const httpUrl = `http://${address.host}:${address.port}`;
+
+    const client = new WebSocket(wsUrl);
+    await new Promise<void>((resolve) => client.once("open", () => resolve()));
+    client.send(JSON.stringify({
+      type: "hello",
+      role: "client",
+      client: {
+        clientId: "test-client",
+        platform: "node"
+      }
+    }));
+    await waitForMessage(client, (message) => message.type === "bootstrap");
+
+    const agent = new WebSocket(wsUrl);
+    await new Promise<void>((resolve) => agent.once("open", () => resolve()));
+    agent.send(JSON.stringify({
+      type: "hello",
+      role: "agent",
+      agent: {
+        agentId: "codex-transient",
+        displayName: "codex-transient",
+        kind: "codex",
+        capabilities: ["send_text"],
+        quickCommands: []
+      }
+    }));
+
+    await waitForMessage(client, (message) =>
+      message.type === "agent_delta" && message.agent.agentId === "codex-transient"
+    );
+
+    agent.send(JSON.stringify({
+      type: "agent_event",
+      event: {
+        id: "process_1",
+        agentId: "codex-transient",
+        eventType: "process_delta",
+        body: "online only",
+        metadata: {
+          transient: true,
+          processId: "p1"
+        }
+      }
+    }));
+
+    const transientEvent = await waitForMessage(client, (message) =>
+      message.type === "timeline_event" && message.event.id === "process_1"
+    );
+    expect(transientEvent.event.body).toBe("online only");
+
+    const bootstrapResponse = await fetch(`${httpUrl}/api/bootstrap`);
+    const bootstrap = await bootstrapResponse.json() as {
+      events: Array<{ id: string }>;
+    };
+    expect(bootstrap.events.some((item) => item.id === "process_1")).toBe(false);
+
+    client.close();
+    agent.close();
+  });
+
+  it("clears a single session timeline through HTTP", async () => {
+    const hub = createHubServer({
+      host: "127.0.0.1",
+      port: 0,
+      dataDir: "temp_docs/test-hub-data"
+    });
+    started.push(hub);
+    const address = await hub.start();
+    const wsUrl = `ws://${address.host}:${address.port}/ws`;
+    const httpUrl = `http://${address.host}:${address.port}`;
+
+    const agent = new WebSocket(wsUrl);
+    await new Promise<void>((resolve) => agent.once("open", () => resolve()));
+    agent.send(JSON.stringify({
+      type: "hello",
+      role: "agent",
+      agent: {
+        agentId: "codex-clear",
+        displayName: "codex-clear",
+        kind: "codex",
+        capabilities: ["send_text"],
+        quickCommands: []
+      }
+    }));
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    agent.send(JSON.stringify({
+      type: "agent_event",
+      event: {
+        id: "evt_clear",
+        agentId: "codex-clear",
+        eventType: "text_output",
+        body: "clear me"
+      }
+    }));
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+
+    const clearResponse = await fetch(`${httpUrl}/api/sessions/clear-events`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ agentId: "codex-clear" })
+    });
+    expect(clearResponse.ok).toBe(true);
+
+    const bootstrapResponse = await fetch(`${httpUrl}/api/bootstrap`);
+    const bootstrap = await bootstrapResponse.json() as {
+      agents: Array<{ agentId: string }>;
+      events: Array<{ agentId: string; body?: string }>;
+    };
+    expect(bootstrap.agents.some((item) => item.agentId === "codex-clear")).toBe(true);
+    expect(bootstrap.events.some((item) => item.agentId === "codex-clear" && item.body === "clear me")).toBe(false);
+
+    agent.close();
+  });
 });

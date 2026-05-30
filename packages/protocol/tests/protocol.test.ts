@@ -23,6 +23,8 @@ describe("protocol helpers", () => {
 
   it("derives status from event types", () => {
     expect(deriveStatusFromEvent("task_running")).toBe("busy");
+    expect(deriveStatusFromEvent("process_delta")).toBe("busy");
+    expect(deriveStatusFromEvent("assistant_completed")).toBe("completed");
     expect(deriveStatusFromEvent("task_failed")).toBe("failed");
   });
 

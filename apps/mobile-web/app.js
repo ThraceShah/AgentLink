@@ -10,7 +10,8 @@ const state = {
   notifiedEventIds: new Set(),
   pollTimer: null,
   reconnectTimer: null,
-  heartbeatTimer: null
+  heartbeatTimer: null,
+  expandedProcesses: new Set()
 };
 
 const els = {
@@ -93,7 +94,13 @@ async function refreshAll({ silent = false } = {}) {
 
 function mergeBootstrap(bootstrap) {
   state.agents = [...(bootstrap.agents ?? [])].sort(sortAgents);
-  state.events = [...(bootstrap.events ?? [])].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const persistentEvents = [...(bootstrap.events ?? [])];
+  const activeTransientEvents = state.events.filter((event) =>
+    event.metadata?.transient === true
+    && ["process_started", "process_delta", "assistant_delta"].includes(event.eventType)
+  );
+  state.events = [...persistentEvents, ...activeTransientEvents]
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 function connectSocket() {
@@ -164,6 +171,8 @@ function handleSocketMessage(raw) {
   } else if (message.type === "timeline_event") {
     upsertEvent(message.event);
     maybeNotify(message.event);
+  } else if (message.type === "timeline_cleared") {
+    state.events = state.events.filter((event) => event.agentId !== message.agentId);
   } else if (message.type === "tui_menu") {
     state.activeTuiMenu = message;
     showTuiMenu(message);
@@ -246,7 +255,8 @@ function renderChat() {
   els.timeline.replaceChildren();
 
   const visibleEvents = eventsFor(agent.agentId).filter(isVisibleEvent);
-  if (visibleEvents.length === 0) {
+  const timelineItems = buildTimelineItems(visibleEvents);
+  if (timelineItems.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
     empty.textContent = "Send a message or use a slash command.";
@@ -254,12 +264,63 @@ function renderChat() {
     return;
   }
 
-  for (const event of visibleEvents) {
-    els.timeline.append(renderEvent(event, agent));
+  for (const item of timelineItems) {
+    els.timeline.append(renderTimelineItem(item, agent));
   }
   requestAnimationFrame(() => {
     els.timeline.scrollTop = els.timeline.scrollHeight;
   });
+}
+
+function renderTimelineItem(item, agent) {
+  if (item.kind === "process") {
+    return renderProcessItem(item, agent);
+  }
+  return renderEvent(item.event, agent);
+}
+
+function renderProcessItem(item, agent) {
+  const latest = item.events.at(-1);
+  const completed = item.completed != null;
+  const expanded = state.expandedProcesses.has(item.processId) || !completed;
+  const article = document.createElement("article");
+  article.className = `message agent process ${completed ? "completed" : "active"}`;
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = `${agent.displayName} · process · ${shortTime(latest?.timestamp)}`;
+  article.append(meta);
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "process-toggle";
+  button.textContent = completed
+    ? `${expanded ? "Hide" : "Show"} process · ${item.summary}`
+    : item.summary;
+  button.addEventListener("click", () => {
+    if (state.expandedProcesses.has(item.processId)) {
+      state.expandedProcesses.delete(item.processId);
+    } else {
+      state.expandedProcesses.add(item.processId);
+    }
+    renderChat();
+  });
+  article.append(button);
+
+  if (expanded) {
+    const list = document.createElement("div");
+    list.className = "process-log";
+    for (const event of item.events) {
+      const row = document.createElement("div");
+      row.className = "process-row";
+      const title = event.title?.trim() || event.eventType;
+      const body = event.body?.trim();
+      row.textContent = body ? `${title}: ${body}` : title;
+      list.append(row);
+    }
+    article.append(list);
+  }
+  return article;
 }
 
 function renderEvent(event, agent) {
@@ -369,6 +430,9 @@ function showList() {
 }
 
 function isVisibleEvent(event) {
+  if (["process_started", "process_delta", "process_completed", "assistant_delta"].includes(event.eventType)) {
+    return true;
+  }
   if (["agent_started", "agent_stopped", "task_running", "task_completed"].includes(event.eventType)) {
     return false;
   }
@@ -376,6 +440,47 @@ function isVisibleEvent(event) {
     return false;
   }
   return event.artifact != null || eventDisplayText(event) != null;
+}
+
+function buildTimelineItems(events) {
+  const items = [];
+  const processMap = new Map();
+  for (const event of events) {
+    if (["process_started", "process_delta", "process_completed", "assistant_delta"].includes(event.eventType)) {
+      const processId = event.metadata?.processId || event.id;
+      if (!processMap.has(processId)) {
+        const processItem = {
+          kind: "process",
+          processId,
+          events: [],
+          completed: null,
+          summary: "Codex is working..."
+        };
+        processMap.set(processId, processItem);
+        items.push(processItem);
+      }
+      const processItem = processMap.get(processId);
+      processItem.events.push(event);
+      if (event.eventType === "process_completed") {
+        processItem.completed = event;
+      }
+      processItem.summary = processSummary(processItem);
+      continue;
+    }
+    items.push({ kind: "event", event });
+  }
+  return items;
+}
+
+function processSummary(item) {
+  if (item.completed) {
+    return item.completed.body?.trim() || item.completed.title || "Codex completed.";
+  }
+  const latest = item.events.at(-1);
+  if (latest?.eventType === "assistant_delta") {
+    return "Drafting reply...";
+  }
+  return latest?.body?.trim() || latest?.title || "Codex is working...";
 }
 
 function eventDisplayText(event) {

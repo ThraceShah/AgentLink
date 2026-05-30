@@ -84,7 +84,11 @@ const qwenNativeCommands: SlashCommandNode[] = [
 ];
 
 const codexNativeCommands: SlashCommandNode[] = [
-  { id: "model", label: "model", description: "Switch model", commandType: "send_text" }
+  { id: "model", label: "model", description: "Switch model", commandType: "send_text" },
+  { id: "status", label: "status", description: "Show Codex session status", commandType: "send_text" },
+  { id: "new", label: "new", description: "Start a new Codex thread", commandType: "send_text" },
+  { id: "clear", label: "clear", description: "Clear this Hub timeline", commandType: "send_text" },
+  { id: "help", label: "help", description: "Show supported Codex commands", commandType: "send_text" }
 ];
 
 const copilotNativeCommands: SlashCommandNode[] = [
@@ -135,6 +139,10 @@ let lastMenuItemsHash: string | undefined;
 let activeMenuSelectedIndex: number | undefined;
 let codexAppClient: CodexAppServerClient | undefined;
 let codexModelMenuItems: Array<{ id: string; label: string; description?: string }> = [];
+let activeCodexProcessId: string | undefined;
+let activeCodexProcessStartedAt = 0;
+let activeCodexProcessStepCount = 0;
+let activeCodexLastAssistantDraft = "";
 
 async function tmux(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("tmux", args, { encoding: "utf8" });
@@ -726,27 +734,46 @@ async function ensureCodexAppClient(): Promise<CodexAppServerClient> {
       preferredModel: await resolveProviderModel(profile),
       callbacks: {
         onPendingRequest: async (request) => {
+          await emitCodexProcessDelta(request.title, request.body, {
+            pendingRequestKind: request.kind
+          });
           await emitCodexPendingRequest(request);
+        },
+        onProcessUpdate: async (update) => {
+          await emitCodexProcessDelta(update.title, update.body);
+        },
+        onAssistantDelta: async (_delta, fullText) => {
+          await emitCodexAssistantDelta(fullText);
         },
         onTurnCompleted: async (update) => {
           resetActiveMenuState();
+          const processId = activeCodexProcessId;
           const metadata = codexMetadata();
           if (update.status === "failed") {
             latestReply = update.error ?? "Codex request failed.";
+            await finishCodexProcess("failed", latestReply);
             await runtime.emitEvent({
               eventType: "task_failed",
               body: latestReply,
               status: "failed",
-              metadata
+              metadata: {
+                ...metadata,
+                processId
+              }
             });
           } else {
             const body = update.text || (update.status === "interrupted" ? "Codex stopped the current turn." : undefined);
+            await finishCodexProcess(update.status);
             if (body) {
               latestReply = body;
               await runtime.emitEvent({
                 eventType: "text_output",
                 body,
-                metadata
+                metadata: {
+                  ...metadata,
+                  final: true,
+                  processId
+                }
               });
             }
           }
@@ -758,6 +785,7 @@ async function ensureCodexAppClient(): Promise<CodexAppServerClient> {
         },
         onError: async (message) => {
           latestReply = message;
+          await finishCodexProcess("failed", message);
           await runtime.sendText(undefined, message);
         }
       }
@@ -779,6 +807,141 @@ function codexMetadata(): Record<string, unknown> {
     contextWindowTokens: status?.contextWindowTokens,
     threadId: status?.threadId
   };
+}
+
+function codexProcessMetadata(extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...codexMetadata(),
+    processId: activeCodexProcessId,
+    ...extra
+  };
+}
+
+async function startCodexProcess(prompt: string): Promise<void> {
+  activeCodexProcessId = `codex_process_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  activeCodexProcessStartedAt = Date.now();
+  activeCodexProcessStepCount = 0;
+  activeCodexLastAssistantDraft = "";
+  await runtime.emitEvent({
+    id: `${activeCodexProcessId}_start`,
+    eventType: "process_started",
+    title: "Codex started",
+    body: prompt,
+    status: "busy",
+    metadata: codexProcessMetadata({
+      transient: true,
+      phase: "started"
+    })
+  });
+}
+
+async function emitCodexProcessDelta(title: string, body?: string, extra: Record<string, unknown> = {}): Promise<void> {
+  if (!activeCodexProcessId) {
+    return;
+  }
+  activeCodexProcessStepCount += 1;
+  await runtime.emitEvent({
+    id: `${activeCodexProcessId}_step_${activeCodexProcessStepCount}`,
+    eventType: "process_delta",
+    title,
+    body,
+    status: "busy",
+    metadata: codexProcessMetadata({
+      transient: true,
+      phase: "delta",
+      step: activeCodexProcessStepCount,
+      ...extra
+    })
+  });
+}
+
+async function emitCodexAssistantDelta(fullText: string): Promise<void> {
+  if (!activeCodexProcessId || fullText === activeCodexLastAssistantDraft) {
+    return;
+  }
+  activeCodexLastAssistantDraft = fullText;
+  await runtime.emitEvent({
+    id: `${activeCodexProcessId}_assistant`,
+    eventType: "assistant_delta",
+    title: "Draft reply",
+    body: fullText,
+    status: "busy",
+    metadata: codexProcessMetadata({
+      transient: true,
+      phase: "assistant_delta"
+    })
+  });
+}
+
+async function finishCodexProcess(status: "completed" | "interrupted" | "failed", body?: string): Promise<void> {
+  const processId = activeCodexProcessId;
+  if (!processId) {
+    return;
+  }
+  const elapsedMs = Math.max(0, Date.now() - activeCodexProcessStartedAt);
+  const summary = body ?? [
+    status === "completed"
+      ? "Codex completed the request."
+      : status === "interrupted"
+        ? "Codex stopped the request."
+        : "Codex failed the request.",
+    activeCodexProcessStepCount > 0 ? `${activeCodexProcessStepCount} updates` : undefined,
+    `${Math.round(elapsedMs / 1000)}s`
+  ].filter(Boolean).join(" · ");
+
+  await runtime.emitEvent({
+    id: `${processId}_done`,
+    eventType: "process_completed",
+    title: status === "failed" ? "Process failed" : "Process completed",
+    body: summary,
+    status: status === "failed" ? "failed" : "completed",
+    metadata: codexProcessMetadata({
+      processId,
+      phase: "completed",
+      processStatus: status,
+      elapsedMs,
+      stepCount: activeCodexProcessStepCount
+    })
+  });
+  activeCodexProcessId = undefined;
+  activeCodexProcessStartedAt = 0;
+  activeCodexProcessStepCount = 0;
+  activeCodexLastAssistantDraft = "";
+}
+
+function formatCodexStatus(): string {
+  const status = codexAppClient?.status;
+  return [
+    `Session: ${sessionName}`,
+    `Transport: app-server`,
+    status?.threadId ? `Thread: ${status.threadId}` : "Thread: not ready",
+    status?.currentModel || status?.preferredModel ? `Model: ${status.currentModel ?? status.preferredModel}` : undefined,
+    `Working directory: ${status?.cwd ?? "unknown"}`,
+    status?.approvalPolicy ? `Approval policy: ${status.approvalPolicy}` : undefined,
+    status?.contextUsedTokens != null && status?.contextWindowTokens != null
+      ? `Context: ${status.contextUsedTokens}/${status.contextWindowTokens}`
+      : undefined
+  ].filter(Boolean).join("\n");
+}
+
+async function clearHubTimeline(): Promise<void> {
+  const endpoint = hubUrl
+    .replace(/^ws:/, "http:")
+    .replace(/^wss:/, "https:")
+    .replace(/\/ws$/, "/api/sessions/clear-events");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ agentId: runtimeAgentId() })
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Failed to clear Hub timeline: HTTP ${response.status}`);
+  }
+}
+
+function runtimeAgentId(): string {
+  return process.env.AGENT_ID ?? defaultAgentId(profile, sessionName);
 }
 
 async function emitCodexPendingRequest(request: CodexPendingRequest): Promise<void> {
@@ -854,6 +1017,7 @@ async function dispatchCodexAppPrompt(prompt: string): Promise<void> {
   lastUserPrompt = prompt;
   lastSentText = prompt;
   lastPromptKey = "";
+  await startCodexProcess(prompt);
   await runtime.emitEvent({
     eventType: "task_running",
     body: "Codex is working on your request.",
@@ -865,12 +1029,55 @@ async function dispatchCodexAppPrompt(prompt: string): Promise<void> {
 
 async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
   const normalized = prompt.trim();
-  if (normalized !== "/model") {
-    await runtime.sendText(undefined, "Codex interactive mode currently supports /model only.");
+  const client = await ensureCodexAppClient();
+  if (normalized === "/status") {
+    latestReply = formatCodexStatus();
+    await runtime.sendText("Codex status", latestReply);
     return;
   }
 
-  const client = await ensureCodexAppClient();
+  if (normalized === "/help") {
+    latestReply = [
+      "Supported Codex commands:",
+      "/model - switch model",
+      "/status - show session, thread, model, cwd and context",
+      "/new - start a new Codex thread",
+      "/clear - clear this Hub timeline",
+      "/help - show this help"
+    ].join("\n");
+    await runtime.sendText("Codex commands", latestReply);
+    return;
+  }
+
+  if (normalized === "/new") {
+    await client.startNewThread();
+    latestReply = "Started a new Codex thread.";
+    await runtime.sendText("Codex thread", latestReply);
+    await runtime.emitEvent({
+      eventType: "need_user_input",
+      status: "waiting_input",
+      metadata: codexMetadata()
+    });
+    return;
+  }
+
+  if (normalized === "/clear") {
+    await clearHubTimeline();
+    latestReply = "Cleared this Hub timeline. Codex thread context was not reset.";
+    await runtime.sendText("Timeline cleared", latestReply);
+    await runtime.emitEvent({
+      eventType: "need_user_input",
+      status: "waiting_input",
+      metadata: codexMetadata()
+    });
+    return;
+  }
+
+  if (normalized !== "/model") {
+    await runtime.sendText(undefined, "Unsupported Codex command. Use /help for the mobile command list.");
+    return;
+  }
+
   const models = await client.listModels();
   if (models.length === 0) {
     await runtime.sendText(undefined, "Codex did not return any selectable models.");

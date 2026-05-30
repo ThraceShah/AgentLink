@@ -31,4 +31,28 @@ describe("HubStore", () => {
 
     expect(store.getAgent("codex-demo")?.lastSeenAt).toBe("2026-04-04T10:00:00.000Z");
   });
+
+  it("clears events without removing the agent", () => {
+    const store = new HubStore();
+    store.upsertAgent({
+      agentId: "codex-demo",
+      displayName: "codex-demo",
+      kind: "codex",
+      capabilities: [],
+      quickCommands: []
+    });
+    store.appendEvent({
+      id: "evt_1",
+      agentId: "codex-demo",
+      eventType: "text_output",
+      timestamp: "2026-04-04T10:00:00.000Z",
+      body: "hello"
+    });
+
+    store.clearAgentEvents("codex-demo");
+
+    const bootstrap = store.getBootstrap();
+    expect(bootstrap.agents.some((item) => item.agentId === "codex-demo")).toBe(true);
+    expect(bootstrap.events.some((item) => item.agentId === "codex-demo")).toBe(false);
+  });
 });

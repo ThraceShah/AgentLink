@@ -71,6 +71,8 @@ agent 在线状态变化。
 
 会话时间线中的一条事件。
 
+当 `timeline_event.event.metadata.transient` 为 `true` 时，Hub 只广播给当前在线客户端，不写入 bootstrap 历史。该约定用于过程流、assistant 草稿等在线体验增强事件。
+
 ### `heartbeat`
 
 心跳保活。
@@ -104,8 +106,15 @@ MVP 事件类型：
 - `artifact_generated`
 - `image_available`
 - `text_output`
+- `process_started`
+- `process_delta`
+- `process_completed`
+- `assistant_delta`
+- `assistant_completed`
 - `user_command`
 - `agent_stopped`
+
+`process_started`、`process_delta` 和 `assistant_delta` 通常是 transient 事件；`process_completed` 和 `text_output` 为持久事件，用于重连后的历史恢复。
 
 ## 6. Android 兼容约定
 

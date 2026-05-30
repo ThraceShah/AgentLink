@@ -161,6 +161,41 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       }
     }
 
+    if (req.method === "POST" && url.pathname === "/api/sessions/clear-events") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.from(chunk));
+      }
+
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          agentId?: string;
+        };
+        const agentId = payload.agentId?.trim();
+        if (!agentId) {
+          throw new Error("agentId is required");
+        }
+        store.clearAgentEvents(agentId);
+        const agent = store.getAgent(agentId);
+        if (agent) {
+          broadcastAgentDelta(agent);
+        }
+        broadcastClients({
+          type: "timeline_cleared",
+          agentId
+        });
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ agentId }));
+        return;
+      } catch (error) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          error: error instanceof Error ? error.message : "failed_to_clear_events"
+        }));
+        return;
+      }
+    }
+
     if (req.method === "POST" && url.pathname === "/api/commands") {
       const chunks: Buffer[] = [];
       for await (const chunk of req) {
@@ -403,15 +438,19 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       }
 
       if (message.type === "agent_event") {
-        const event = store.appendEvent({
+        const eventInput = {
           id: message.event.id ?? createId("evt"),
           timestamp: message.event.timestamp ?? nowIso(),
           ...message.event
-        });
+        };
+        const isTransient = message.event.metadata?.transient === true;
+        const event = isTransient ? eventInput : store.appendEvent(eventInput);
         broadcastTimelineEvent(event);
-        const agent = store.getAgent(event.agentId);
-        if (agent) {
-          broadcastAgentDelta(agent);
+        if (!isTransient) {
+          const agent = store.getAgent(event.agentId);
+          if (agent) {
+            broadcastAgentDelta(agent);
+          }
         }
         return;
       }

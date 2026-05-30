@@ -102,6 +102,19 @@ export class HubStore {
     this.events.delete(agentId);
   }
 
+  clearAgentEvents(agentId: string): void {
+    this.events.delete(agentId);
+    const snapshot = this.agents.get(agentId);
+    if (!snapshot) {
+      return;
+    }
+    this.agents.set(agentId, {
+      ...snapshot,
+      lastSeenAt: nowIso(),
+      lastMessage: "Timeline cleared."
+    });
+  }
+
   pruneOfflineAgents(): string[] {
     const removedIds: string[] = [];
     for (const [agentId, snapshot] of this.agents.entries()) {
