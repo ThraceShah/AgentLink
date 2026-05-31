@@ -438,6 +438,16 @@ dialog select {
   white-space: pre-wrap;
 }
 
+#import-note {
+  height: calc(13px * 1.4 * 3);
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .candidate-list {
   display: flex;
   flex-direction: column;
