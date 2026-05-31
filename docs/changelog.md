@@ -117,3 +117,4 @@
 - 修复移动 Web `/status` 的 token usage 与 context window 缺失问题：从当前 Codex rollout 历史回填最近 token_count，并区分累计 token usage 与当前 context window 占用。
 - 新增移动 Web Codex 审批可见性：Codex app-server 待审批请求会作为 `need_approval` 明确进入时间线，聊天页和输入区提供本轮批准与会话级批准按钮，避免会话停在 `busy` 状态时被误判为卡死。
 - 修复移动 Web 聊天文本选择体验：移除消息整卡点击复制，改为显式 `Copy` 按钮，避免用户选中局部文字时被点击复制逻辑打断或取消选区。
+- 修复移动 Web 聊天选区被自动刷新清空的问题：当用户正在选择时间线文本时，Web UI 会暂停重建聊天 DOM，避免 3 秒轮询或 WebSocket 刷新取消浏览器选区。

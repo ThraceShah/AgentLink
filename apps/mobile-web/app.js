@@ -245,7 +245,9 @@ function setConnection(value) {
 
 function render() {
   renderAgents();
-  renderChat();
+  if (!hasTimelineTextSelection()) {
+    renderChat();
+  }
   renderSlashPanel();
 }
 
@@ -311,6 +313,20 @@ function renderChat() {
     els.timeline.scrollTop = els.timeline.scrollHeight;
   });
   renderRuntimeStrip(agent, pendingApproval);
+}
+
+function hasTimelineTextSelection() {
+  const selection = window.getSelection?.();
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    const range = selection.getRangeAt(index);
+    if (els.timeline.contains(range.commonAncestorContainer)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function renderTimelineItem(item, agent) {
