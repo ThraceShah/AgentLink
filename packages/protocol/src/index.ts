@@ -74,6 +74,8 @@ export type SlashCommandNode = {
   requiresInput?: boolean;
   inputPlaceholder?: string;
   keyValue?: string;
+  args?: Record<string, unknown>;
+  ui?: Record<string, unknown>;
   children?: SlashCommandNode[];
 };
 
@@ -85,6 +87,8 @@ export const slashCommandNodeSchema: z.ZodType<SlashCommandNode> = z.lazy(() => 
   requiresInput: z.boolean().optional(),
   inputPlaceholder: z.string().optional(),
   keyValue: z.string().optional(),
+  args: z.record(z.string(), z.any()).optional(),
+  ui: z.record(z.string(), z.any()).optional(),
   children: slashCommandNodeSchema.array().optional()
 }));
 

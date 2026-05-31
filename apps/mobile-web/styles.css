@@ -453,6 +453,66 @@ dialog select {
   padding: 0 10px;
 }
 
+dialog textarea {
+  min-height: 88px;
+}
+
+#command-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.command-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.command-actions button,
+.model-option {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  text-align: left;
+}
+
+.command-actions button {
+  padding: 0 12px;
+}
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(300px, 38dvh);
+  overflow-y: auto;
+}
+
+.model-option {
+  padding: 10px 12px;
+}
+
+.model-option[data-selected="true"] {
+  border-color: rgba(79, 180, 119, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(79, 180, 119, 0.35);
+}
+
+.model-option strong,
+.model-option small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-option small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 #tui-body {
   margin: 0;
   color: var(--muted);

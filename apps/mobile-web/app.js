@@ -16,7 +16,10 @@ const state = {
   reconnectTimer: null,
   heartbeatTimer: null,
   expandedProcesses: new Set(),
-  pendingImport: null
+  pendingImport: null,
+  activeCommand: null,
+  modelOptions: [],
+  selectedModelId: null
 };
 
 const els = {
@@ -65,6 +68,13 @@ const els = {
   tuiBody: document.querySelector("#tui-body"),
   tuiItems: document.querySelector("#tui-items"),
   tuiCancelButton: document.querySelector("#tui-cancel-button"),
+  commandDialog: document.querySelector("#command-dialog"),
+  commandForm: document.querySelector("#command-form"),
+  commandTitle: document.querySelector("#command-title"),
+  commandNote: document.querySelector("#command-note"),
+  commandFields: document.querySelector("#command-fields"),
+  submitCommandButton: document.querySelector("#submit-command-button"),
+  cancelCommandButton: document.querySelector("#cancel-command-button"),
   agentTemplate: document.querySelector("#agent-card-template")
 };
 
@@ -434,7 +444,7 @@ function renderSlashPanel() {
     button.type = "button";
     button.textContent = `/${node.label}`;
     button.addEventListener("click", () => {
-      executeSlashCommand(node, null);
+      openOrExecuteSlashCommand(node, null);
       els.messageInput.value = "";
       renderSlashPanel();
     });
@@ -685,6 +695,12 @@ function showList() {
 }
 
 function isVisibleEvent(event) {
+  if (event.metadata?.structured === true) {
+    return false;
+  }
+  if (event.eventType === "user_command" && event.metadata?.internal === true) {
+    return false;
+  }
   if (["process_started", "process_delta", "process_completed", "assistant_delta"].includes(event.eventType)) {
     return true;
   }
@@ -756,7 +772,7 @@ async function sendCurrentMessage() {
 
   const matched = matchSlashCommand(agent.slashCommands, input);
   if (matched) {
-    await executeSlashCommand(matched.node, matched.userInput);
+    await openOrExecuteSlashCommand(matched.node, matched.userInput);
   } else {
     await sendCommand(agent.agentId, "send_text", input);
   }
@@ -764,9 +780,22 @@ async function sendCurrentMessage() {
   renderSlashPanel();
 }
 
+async function openOrExecuteSlashCommand(node, userInput) {
+  const uiKind = node.ui?.kind;
+  if (node.commandType === "custom" && uiKind && uiKind !== "direct" && !userInput) {
+    await openCommandDialog(node);
+    return;
+  }
+  await executeSlashCommand(node, userInput);
+}
+
 async function executeSlashCommand(node, userInput) {
   const agent = selectedAgent();
   if (!agent || !node.commandType) {
+    return;
+  }
+  if (node.commandType === "custom") {
+    await sendCommand(agent.agentId, "custom", userInput || `/${node.id}`, { ...(node.args ?? {}) });
     return;
   }
   if (node.commandType === "send_text") {
@@ -776,9 +805,272 @@ async function executeSlashCommand(node, userInput) {
   }
 }
 
+async function openCommandDialog(node) {
+  state.activeCommand = node;
+  state.modelOptions = [];
+  state.selectedModelId = null;
+  els.commandTitle.textContent = node.ui?.title || `/${node.label}`;
+  els.commandNote.textContent = node.description || "";
+  els.commandNote.classList.toggle("hidden", !node.description);
+  els.commandFields.replaceChildren();
+  els.submitCommandButton.textContent = "Run";
+  els.submitCommandButton.disabled = false;
+  els.submitCommandButton.classList.remove("hidden");
+  els.commandDialog.showModal();
+
+  const kind = node.ui?.kind;
+  if (kind === "codexModel") {
+    await renderModelCommand(node);
+  } else if (kind === "codexGoal") {
+    renderGoalCommand();
+  } else if (kind === "codexMemory") {
+    renderMemoryCommand();
+  } else if (kind === "textInput") {
+    renderTextInputCommand(node);
+  } else if (kind === "confirm") {
+    renderConfirmCommand(node);
+  }
+}
+
+async function renderModelCommand(node) {
+  const agent = selectedAgent();
+  if (!agent) {
+    return;
+  }
+  els.submitCommandButton.textContent = "Apply";
+  els.submitCommandButton.disabled = true;
+  const loading = document.createElement("p");
+  loading.className = "dialog-note";
+  loading.textContent = "Loading models...";
+  els.commandFields.append(loading);
+  try {
+    const commandId = createId("cmd");
+    await api("/api/commands", {
+      method: "POST",
+      body: JSON.stringify({
+        agentId: agent.agentId,
+        command: { id: commandId, type: "custom", text: "/model", args: { codexCommand: "model.list", internal: true } }
+      })
+    });
+    await waitForStructuredEvent(agent.agentId, "model.list");
+    const payload = latestStructuredPayload(agent.agentId, "model.list");
+    state.modelOptions = payload?.models ?? [];
+    state.selectedModelId = payload?.currentModel ?? state.modelOptions[0]?.id ?? null;
+    els.commandFields.replaceChildren();
+    const list = document.createElement("div");
+    list.className = "model-list";
+    for (const model of state.modelOptions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "model-option";
+      button.dataset.selected = model.id === state.selectedModelId ? "true" : "false";
+      button.innerHTML = `<strong>${escapeHtml(model.label || model.id)}</strong><small>${escapeHtml(model.id)}</small>`;
+      button.addEventListener("click", () => {
+        state.selectedModelId = model.id;
+        renderModelCommandSelection(list);
+      });
+      list.append(button);
+    }
+    els.commandFields.append(list);
+    const effortLabel = document.createElement("label");
+    effortLabel.textContent = "Reasoning effort";
+    const select = document.createElement("select");
+    select.id = "command-reasoning-effort";
+    effortLabel.append(select);
+    els.commandFields.append(effortLabel);
+    renderReasoningOptions();
+    els.submitCommandButton.disabled = state.modelOptions.length === 0;
+  } catch (error) {
+    els.commandFields.replaceChildren();
+    const note = document.createElement("p");
+    note.className = "dialog-note";
+    note.textContent = error.message || "Failed to load models.";
+    els.commandFields.append(note);
+  }
+}
+
+function renderModelCommandSelection(list) {
+  for (const button of list.querySelectorAll(".model-option")) {
+    const id = button.querySelector("small")?.textContent || "";
+    button.dataset.selected = id === state.selectedModelId ? "true" : "false";
+  }
+  renderReasoningOptions();
+}
+
+function renderReasoningOptions() {
+  const select = document.querySelector("#command-reasoning-effort");
+  if (!select) {
+    return;
+  }
+  const model = state.modelOptions.find((item) => item.id === state.selectedModelId);
+  select.replaceChildren();
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = model?.defaultReasoningEffort ? `Default (${model.defaultReasoningEffort})` : "Default";
+  select.append(defaultOption);
+  const efforts = model?.supportedReasoningEfforts?.length
+    ? model.supportedReasoningEfforts
+    : ["none", "minimal", "low", "medium", "high", "xhigh"].map((id) => ({ id, label: id }));
+  for (const effort of efforts) {
+    const option = document.createElement("option");
+    option.value = effort.id;
+    option.textContent = effort.label || effort.id;
+    select.append(option);
+  }
+}
+
+function renderGoalCommand() {
+  els.submitCommandButton.textContent = "Set Goal";
+  const actions = document.createElement("div");
+  actions.className = "command-actions";
+  actions.append(commandActionButton("Show Current Goal", () => runCommandDialogArgs({ codexCommand: "goal.get" })));
+  actions.append(commandActionButton("Clear Goal", () => runCommandDialogArgs({ codexCommand: "goal.clear" }, "Clear current goal?")));
+  els.commandFields.append(actions);
+  const objective = labeledTextarea("Objective", "Improve benchmark coverage");
+  objective.querySelector("textarea").id = "command-goal-objective";
+  els.commandFields.append(objective);
+  const budget = labeledInput("Token budget (optional)", "number", "50000");
+  budget.querySelector("input").id = "command-goal-budget";
+  els.commandFields.append(budget);
+}
+
+function renderMemoryCommand() {
+  els.submitCommandButton.classList.add("hidden");
+  const actions = document.createElement("div");
+  actions.className = "command-actions";
+  actions.append(commandActionButton("Enable Memory", () => runCommandDialogArgs({ codexCommand: "memory.mode", enabled: true })));
+  actions.append(commandActionButton("Disable Memory", () => runCommandDialogArgs({ codexCommand: "memory.mode", enabled: false })));
+  actions.append(commandActionButton("Reset Local Memories", () => runCommandDialogArgs({ codexCommand: "memory.reset" }, "Reset local Codex memories?")));
+  els.commandFields.append(actions);
+}
+
+function renderTextInputCommand(node) {
+  els.submitCommandButton.textContent = "Run";
+  const field = labeledInput(node.ui?.label || "Value", "text", node.ui?.placeholder || "");
+  field.querySelector("input").id = "command-text-value";
+  els.commandFields.append(field);
+}
+
+function renderConfirmCommand(node) {
+  els.submitCommandButton.textContent = "Confirm";
+  const note = document.createElement("p");
+  note.className = "dialog-note";
+  note.textContent = node.ui?.body || node.description || "Confirm this command.";
+  els.commandFields.append(note);
+}
+
+function commandActionButton(label, handler) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", handler);
+  return button;
+}
+
+function labeledInput(labelText, type, placeholder) {
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  const input = document.createElement("input");
+  input.type = type;
+  input.placeholder = placeholder;
+  label.append(input);
+  return label;
+}
+
+function labeledTextarea(labelText, placeholder) {
+  const label = document.createElement("label");
+  label.textContent = labelText;
+  const textarea = document.createElement("textarea");
+  textarea.placeholder = placeholder;
+  label.append(textarea);
+  return label;
+}
+
+async function submitCommandDialog(event) {
+  event.preventDefault();
+  const node = state.activeCommand;
+  if (!node) {
+    els.commandDialog.close();
+    return;
+  }
+  const kind = node.ui?.kind;
+  if (kind === "codexModel") {
+    await runCommandDialogArgs({
+      codexCommand: "model.set",
+      model: state.selectedModelId,
+      reasoningEffort: document.querySelector("#command-reasoning-effort")?.value || undefined
+    });
+  } else if (kind === "codexGoal") {
+    const objective = document.querySelector("#command-goal-objective")?.value.trim() || "";
+    if (!objective) {
+      toast("Goal objective is required.");
+      return;
+    }
+    await runCommandDialogArgs({
+      codexCommand: "goal.set",
+      objective,
+      tokenBudget: document.querySelector("#command-goal-budget")?.value || undefined
+    });
+  } else if (kind === "textInput") {
+    const value = document.querySelector("#command-text-value")?.value.trim() || "";
+    if (!value) {
+      toast("Value is required.");
+      return;
+    }
+    await runCommandDialogArgs({ ...(node.args ?? {}), name: value });
+  } else {
+    await runCommandDialogArgs({ ...(node.args ?? {}) });
+  }
+}
+
+async function runCommandDialogArgs(args, confirmText) {
+  if (confirmText && !confirm(confirmText)) {
+    return;
+  }
+  const agent = selectedAgent();
+  const node = state.activeCommand;
+  if (!agent || !node) {
+    return;
+  }
+  await sendCommand(agent.agentId, "custom", `/${node.id}`, args);
+  els.submitCommandButton.classList.remove("hidden");
+  els.commandDialog.close();
+}
+
+async function waitForStructuredEvent(agentId, codexCommand) {
+  const start = Date.now();
+  while (Date.now() - start < 2500) {
+    if (latestStructuredPayload(agentId, codexCommand)) {
+      return;
+    }
+    await refreshAll({ silent: true });
+    if (latestStructuredPayload(agentId, codexCommand)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 120));
+  }
+  throw new Error("Timed out waiting for Codex.");
+}
+
+function latestStructuredPayload(agentId, codexCommand) {
+  const event = eventsFor(agentId)
+    .filter((item) => item.metadata?.structured === true && item.metadata?.codexCommand === codexCommand)
+    .at(-1);
+  if (!event?.body) {
+    return null;
+  }
+  try {
+    return JSON.parse(event.body);
+  } catch {
+    return null;
+  }
+}
+
 async function sendCommand(agentId, type, text, args) {
   const commandId = createId("cmd");
-  appendOptimistic(agentId, commandId, type, text);
+  if (args?.internal !== true) {
+    appendOptimistic(agentId, commandId, type, text);
+  }
   render();
   try {
     await api("/api/commands", {
@@ -1169,6 +1461,17 @@ els.tuiCancelButton.addEventListener("click", () => {
   } else {
     els.tuiDialog.close();
   }
+});
+els.cancelCommandButton.addEventListener("click", () => {
+  els.submitCommandButton.classList.remove("hidden");
+  els.commandDialog.close();
+});
+els.commandForm.addEventListener("submit", submitCommandDialog);
+els.commandDialog.addEventListener("close", () => {
+  state.activeCommand = null;
+  state.modelOptions = [];
+  state.selectedModelId = null;
+  els.submitCommandButton.classList.remove("hidden");
 });
 els.keypad.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-key]");

@@ -105,6 +105,24 @@ export type CodexSessionStatus = {
   approvalPolicy?: string;
   contextUsedTokens?: number;
   contextWindowTokens?: number;
+  goal?: CodexGoal | null;
+};
+
+export type CodexGoal = {
+  threadId?: string;
+  objective: string;
+  status?: string;
+  tokenBudget?: number | null;
+  tokensUsed?: number;
+  timeUsedSeconds?: number;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+export type CodexMcpServerStatus = {
+  name: string;
+  status?: string;
+  details?: string;
 };
 
 type ActiveTurn = {
@@ -165,6 +183,7 @@ export class CodexAppServerClient {
   private approvalPolicy?: string;
   private contextUsedTokens?: number;
   private contextWindowTokens?: number;
+  private goal?: CodexGoal | null;
   private activeTurn?: ActiveTurn;
   private pendingRequest?: PendingApprovalRequest | PendingInputRequest;
 
@@ -193,7 +212,8 @@ export class CodexAppServerClient {
       cwd: this.workingDir,
       approvalPolicy: this.approvalPolicy,
       contextUsedTokens: this.contextUsedTokens,
-      contextWindowTokens: this.contextWindowTokens
+      contextWindowTokens: this.contextWindowTokens,
+      goal: this.goal
     };
   }
 
@@ -283,6 +303,120 @@ export class CodexAppServerClient {
   async setReasoningEffort(effort: ReasoningEffort | undefined): Promise<void> {
     this.reasoningEffort = effort;
     await this.persistState();
+  }
+
+  async getGoal(): Promise<CodexGoal | null> {
+    await this.start();
+    if (!this.threadId) {
+      throw new Error("Codex thread is not ready.");
+    }
+    const result = await this.request("thread/goal/get", {
+      threadId: this.threadId
+    }) as Record<string, unknown>;
+    this.goal = parseGoal(result.goal);
+    return this.goal;
+  }
+
+  async setGoal(objective: string, tokenBudget?: number): Promise<CodexGoal> {
+    await this.start();
+    if (!this.threadId) {
+      throw new Error("Codex thread is not ready.");
+    }
+    const trimmed = objective.trim();
+    if (!trimmed) {
+      throw new Error("Goal objective must not be empty.");
+    }
+    const params: Record<string, unknown> = {
+      threadId: this.threadId,
+      objective: trimmed
+    };
+    if (tokenBudget != null) {
+      params.tokenBudget = tokenBudget;
+    }
+    const result = await this.request("thread/goal/set", params) as Record<string, unknown>;
+    const goal = parseGoal(result.goal);
+    if (!goal) {
+      throw new Error("Codex did not return the updated goal.");
+    }
+    this.goal = goal;
+    return goal;
+  }
+
+  async clearGoal(): Promise<boolean> {
+    await this.start();
+    if (!this.threadId) {
+      throw new Error("Codex thread is not ready.");
+    }
+    const result = await this.request("thread/goal/clear", {
+      threadId: this.threadId
+    }) as Record<string, unknown>;
+    this.goal = null;
+    return result.cleared === true;
+  }
+
+  async setThreadName(name: string): Promise<void> {
+    await this.start();
+    if (!this.threadId) {
+      throw new Error("Codex thread is not ready.");
+    }
+    const trimmed = name.trim();
+    if (!trimmed) {
+      throw new Error("Thread name must not be empty.");
+    }
+    await this.request("thread/name/set", {
+      threadId: this.threadId,
+      name: trimmed
+    });
+  }
+
+  async compactThread(): Promise<void> {
+    await this.start();
+    if (!this.threadId) {
+      throw new Error("Codex thread is not ready.");
+    }
+    await this.request("thread/compact/start", {
+      threadId: this.threadId
+    });
+  }
+
+  async setMemoryMode(enabled: boolean): Promise<void> {
+    await this.start();
+    if (!this.threadId) {
+      throw new Error("Codex thread is not ready.");
+    }
+    await this.request("thread/memoryMode/set", {
+      threadId: this.threadId,
+      enabled
+    });
+  }
+
+  async resetMemory(): Promise<void> {
+    await this.start();
+    await this.request("memory/reset", {});
+  }
+
+  async listMcpServerStatus(): Promise<CodexMcpServerStatus[]> {
+    await this.start();
+    const result = await this.request("mcpServerStatus/list", {}) as Record<string, unknown>;
+    const candidates = Array.isArray(result.servers)
+      ? result.servers
+      : Array.isArray(result.data)
+        ? result.data
+        : Array.isArray(result.statuses)
+          ? result.statuses
+          : [];
+    return candidates.flatMap((item) => {
+      const value = objectValue(item);
+      const name = stringValue(value?.name) ?? stringValue(value?.serverName) ?? stringValue(value?.id);
+      if (!name) {
+        return [];
+      }
+      return [{
+        name,
+        status: stringValue(value?.status) ?? stringValue(value?.state),
+        details: stringValue(value?.details) ?? stringValue(value?.message)
+      }];
+    });
   }
 
   async startNewThread(): Promise<void> {
@@ -910,6 +1044,20 @@ export class CodexAppServerClient {
         });
         return;
       }
+      case "thread/goal/updated": {
+        this.goal = parseGoal(params.goal) ?? parseGoal(params);
+        await this.callbacks.onProcessUpdate?.({
+          title: "Goal updated",
+          body: this.goal?.objective
+        });
+        return;
+      }
+      case "thread/goal/cleared":
+        this.goal = null;
+        await this.callbacks.onProcessUpdate?.({
+          title: "Goal cleared"
+        });
+        return;
       default:
         return;
     }
@@ -1021,6 +1169,27 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function parseGoal(value: unknown): CodexGoal | null {
+  const object = objectValue(value);
+  if (!object) {
+    return null;
+  }
+  const objective = stringValue(object.objective);
+  if (!objective) {
+    return null;
+  }
+  return {
+    threadId: stringValue(object.threadId),
+    objective,
+    status: stringValue(object.status),
+    tokenBudget: object.tokenBudget === null ? null : numberValue(object.tokenBudget),
+    tokensUsed: numberValue(object.tokensUsed),
+    timeUsedSeconds: numberValue(object.timeUsedSeconds),
+    createdAt: numberValue(object.createdAt),
+    updatedAt: numberValue(object.updatedAt)
+  };
 }
 
 function reasoningEffortValue(value: unknown): ReasoningEffort | undefined {

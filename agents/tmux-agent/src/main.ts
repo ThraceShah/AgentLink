@@ -88,7 +88,62 @@ const qwenNativeCommands: SlashCommandNode[] = [
 ];
 
 const codexNativeCommands: SlashCommandNode[] = [
-  { id: "model", label: "model", description: "Switch model and reasoning effort", commandType: "send_text" },
+  {
+    id: "model",
+    label: "model",
+    description: "Switch model and reasoning effort",
+    commandType: "custom",
+    args: { codexCommand: "model.select" },
+    ui: { kind: "codexModel" }
+  },
+  {
+    id: "goal",
+    label: "goal",
+    description: "View, set, replace, or clear the active goal",
+    commandType: "custom",
+    args: { codexCommand: "goal" },
+    ui: { kind: "codexGoal" }
+  },
+  {
+    id: "rename",
+    label: "rename",
+    description: "Rename the current Codex thread",
+    commandType: "custom",
+    args: { codexCommand: "thread.rename" },
+    ui: { kind: "textInput", title: "Rename Thread", label: "Thread name", placeholder: "New thread name" }
+  },
+  {
+    id: "compact",
+    label: "compact",
+    description: "Compact the current Codex context",
+    commandType: "custom",
+    args: { codexCommand: "thread.compact" },
+    ui: { kind: "confirm", title: "Compact Context", body: "Compact the current Codex context now?" }
+  },
+  {
+    id: "memory",
+    label: "memory",
+    description: "Manage Codex memory for this thread",
+    commandType: "custom",
+    args: { codexCommand: "memory" },
+    ui: { kind: "codexMemory" }
+  },
+  {
+    id: "mcp",
+    label: "mcp",
+    description: "Show MCP server status",
+    commandType: "custom",
+    args: { codexCommand: "mcp.status" },
+    ui: { kind: "direct" }
+  },
+  {
+    id: "status",
+    label: "status",
+    description: "Show Codex session status",
+    commandType: "custom",
+    args: { codexCommand: "status" },
+    ui: { kind: "direct" }
+  },
   { id: "iris-status", label: "iris-status", description: "Show bridge session status", commandType: "send_text" },
   { id: "iris-new-thread", label: "iris-new-thread", description: "Start a new Codex thread", commandType: "send_text" },
   { id: "iris-clear-history", label: "iris-clear-history", description: "Clear this Hub timeline", commandType: "send_text" },
@@ -928,18 +983,51 @@ async function finishCodexProcess(status: "completed" | "interrupted" | "failed"
 
 function formatCodexStatus(): string {
   const status = codexAppClient?.status;
+  const goal = status?.goal;
   return [
     `Session: ${sessionName}`,
     `Transport: app-server`,
     status?.threadId ? `Thread: ${status.threadId}` : "Thread: not ready",
     status?.currentModel || status?.preferredModel ? `Model: ${status.currentModel ?? status.preferredModel}` : undefined,
     status?.reasoningEffort ? `Reasoning: ${formatReasoningEffort(status.reasoningEffort)}` : undefined,
+    goal ? `Goal: ${goal.objective}` : undefined,
+    goal?.status ? `Goal status: ${goal.status}` : undefined,
+    goal?.tokenBudget != null ? `Goal token budget: ${goal.tokenBudget}` : undefined,
     `Working directory: ${status?.cwd ?? "unknown"}`,
     status?.approvalPolicy ? `Approval policy: ${status.approvalPolicy}` : undefined,
     status?.contextUsedTokens != null && status?.contextWindowTokens != null
       ? `Context: ${status.contextUsedTokens}/${status.contextWindowTokens}`
       : undefined
   ].filter(Boolean).join("\n");
+}
+
+function formatCodexGoal(goal: { objective: string; status?: string; tokenBudget?: number | null; tokensUsed?: number; timeUsedSeconds?: number } | null): string {
+  if (!goal) {
+    return "No goal is currently set.";
+  }
+  return [
+    `Objective: ${goal.objective}`,
+    goal.status ? `Status: ${goal.status}` : undefined,
+    goal.tokensUsed != null ? `Tokens used: ${goal.tokensUsed}` : undefined,
+    goal.tokenBudget != null ? `Token budget: ${goal.tokenBudget}` : undefined,
+    goal.timeUsedSeconds != null ? `Time used: ${goal.timeUsedSeconds}s` : undefined
+  ].filter(Boolean).join("\n");
+}
+
+function parsePositiveInteger(value: unknown): number | undefined {
+  if (value == null || value === "") {
+    return undefined;
+  }
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new Error("Token budget must be a positive integer.");
+  }
+  return number;
+}
+
+function argString(args: Record<string, unknown> | undefined, key: string): string {
+  const value = args?.[key];
+  return typeof value === "string" ? value.trim() : "";
 }
 
 async function clearHubTimeline(): Promise<void> {
@@ -1105,7 +1193,8 @@ async function dispatchCodexAppPrompt(prompt: string): Promise<void> {
 async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
   const normalized = prompt.trim();
   const client = await ensureCodexAppClient();
-  if (normalized === "/iris-status") {
+  if (normalized === "/status" || normalized === "/iris-status") {
+    await client.getGoal().catch(() => null);
     latestReply = formatCodexStatus();
     await runtime.sendText("Codex status", latestReply);
     return;
@@ -1115,6 +1204,14 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
     latestReply = [
       "Supported AgentLink Codex commands:",
       "/model - switch Codex model and reasoning effort",
+      "/goal <objective> - set or replace the active goal",
+      "/goal status - show the active goal",
+      "/goal clear - clear the active goal",
+      "/rename <name> - rename the current thread",
+      "/compact - compact current context",
+      "/memory off|on|reset - manage Codex memory",
+      "/mcp - show MCP server status",
+      "/status - show Codex status",
       "/iris-status - show bridge session, thread, model, cwd and context",
       "/iris-new-thread - start a new Codex thread",
       "/iris-clear-history - clear this Hub timeline",
@@ -1148,8 +1245,105 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
     return;
   }
 
+  const goalMatch = normalized.match(/^\/goal(?:\s+(.*))?$/);
+  if (goalMatch) {
+    const value = (goalMatch[1] ?? "").trim();
+    if (!value || value === "status") {
+      const goal = await client.getGoal();
+      latestReply = formatCodexGoal(goal);
+      await runtime.sendText("Codex goal", latestReply);
+      return;
+    }
+    if (value === "clear") {
+      const cleared = await client.clearGoal();
+      latestReply = cleared ? "Cleared Codex goal." : "No goal was set.";
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: latestReply,
+        metadata: codexMetadata()
+      });
+      await runtime.emitEvent({
+        eventType: "need_user_input",
+        status: "waiting_input",
+        metadata: codexMetadata()
+      });
+      return;
+    }
+    const goal = await client.setGoal(value);
+    latestReply = formatCodexGoal(goal);
+    await runtime.emitEvent({
+      eventType: "text_output",
+      body: latestReply,
+      metadata: codexMetadata()
+    });
+    await runtime.emitEvent({
+      eventType: "need_user_input",
+      status: "waiting_input",
+      metadata: codexMetadata()
+    });
+    return;
+  }
+
+  const renameMatch = normalized.match(/^\/rename(?:\s+(.*))?$/);
+  if (renameMatch) {
+    const name = (renameMatch[1] ?? "").trim();
+    if (!name) {
+      await runtime.sendText(undefined, "Usage: /rename <thread name>");
+      return;
+    }
+    await client.setThreadName(name);
+    latestReply = `Renamed Codex thread to ${name}.`;
+    await runtime.sendText("Codex thread", latestReply);
+    return;
+  }
+
+  if (normalized === "/compact") {
+    await client.compactThread();
+    latestReply = "Started Codex context compaction.";
+    await runtime.emitEvent({
+      eventType: "task_running",
+      body: latestReply,
+      status: "busy",
+      metadata: codexMetadata()
+    });
+    return;
+  }
+
+  const memoryMatch = normalized.match(/^\/memory(?:\s+(.*))?$/);
+  if (memoryMatch) {
+    const action = (memoryMatch[1] ?? "").trim();
+    if (action === "reset") {
+      await client.resetMemory();
+      latestReply = "Reset Codex local memories.";
+    } else if (action === "on" || action === "enable") {
+      await client.setMemoryMode(true);
+      latestReply = "Enabled Codex memory for this thread.";
+    } else if (action === "off" || action === "disable") {
+      await client.setMemoryMode(false);
+      latestReply = "Disabled Codex memory for this thread.";
+    } else {
+      await runtime.sendText(undefined, "Usage: /memory on|off|reset");
+      return;
+    }
+    await runtime.emitEvent({
+      eventType: "text_output",
+      body: latestReply,
+      metadata: codexMetadata()
+    });
+    return;
+  }
+
+  if (normalized === "/mcp" || normalized === "/mcp status") {
+    const servers = await client.listMcpServerStatus();
+    latestReply = servers.length > 0
+      ? servers.map((item) => [item.name, item.status, item.details].filter(Boolean).join(" · ")).join("\n")
+      : "No MCP servers reported by Codex.";
+    await runtime.sendText("Codex MCP status", latestReply);
+    return;
+  }
+
   if (normalized !== "/model") {
-    await runtime.sendText(undefined, "Unsupported AgentLink Codex command. Use /iris-help for the mobile command list.");
+    await runtime.sendText(undefined, "Unsupported Codex command. Use /iris-help for the mobile command list.");
     return;
   }
 
@@ -1179,6 +1373,152 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
       ].filter(Boolean).join("\n") || undefined
     }))
   );
+}
+
+async function dispatchCodexStructuredCommand(args: Record<string, unknown>): Promise<void> {
+  const client = await ensureCodexAppClient();
+  const name = typeof args.codexCommand === "string" ? args.codexCommand : "";
+  switch (name) {
+    case "status":
+      await client.getGoal().catch(() => null);
+      latestReply = formatCodexStatus();
+      await runtime.sendText("Codex status", latestReply);
+      return;
+    case "model.list": {
+      const models = await client.listModels();
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: JSON.stringify({
+          models,
+          currentModel: client.status.currentModel ?? client.status.preferredModel,
+          reasoningEffort: client.status.reasoningEffort
+        }),
+        metadata: {
+          ...codexMetadata(),
+          structured: true,
+          codexCommand: name
+        }
+      });
+      return;
+    }
+    case "model.set": {
+      const model = argString(args, "model");
+      if (!model) {
+        throw new Error("Model is required.");
+      }
+      const effort = parseReasoningEffort(argString(args, "reasoningEffort"));
+      await client.setPreferredModel(model);
+      await client.setReasoningEffort(effort);
+      latestReply = [
+        `Codex model set to ${model}.`,
+        effort ? `Reasoning effort set to ${formatReasoningEffort(effort)}.` : "Reasoning effort set to model default."
+      ].join("\n");
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: latestReply,
+        metadata: codexMetadata()
+      });
+      await runtime.emitEvent({
+        eventType: "need_user_input",
+        status: "waiting_input",
+        metadata: codexMetadata()
+      });
+      return;
+    }
+    case "model.select":
+      await dispatchCodexSlashCommand("/model");
+      return;
+    case "goal.get": {
+      const goal = await client.getGoal();
+      latestReply = formatCodexGoal(goal);
+      await runtime.sendText("Codex goal", latestReply);
+      return;
+    }
+    case "goal.set": {
+      const objective = argString(args, "objective");
+      const goal = await client.setGoal(objective, parsePositiveInteger(args.tokenBudget));
+      latestReply = formatCodexGoal(goal);
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: latestReply,
+        metadata: codexMetadata()
+      });
+      await runtime.emitEvent({
+        eventType: "need_user_input",
+        status: "waiting_input",
+        metadata: codexMetadata()
+      });
+      return;
+    }
+    case "goal.clear": {
+      const cleared = await client.clearGoal();
+      latestReply = cleared ? "Cleared Codex goal." : "No goal was set.";
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: latestReply,
+        metadata: codexMetadata()
+      });
+      await runtime.emitEvent({
+        eventType: "need_user_input",
+        status: "waiting_input",
+        metadata: codexMetadata()
+      });
+      return;
+    }
+    case "goal":
+      await dispatchCodexSlashCommand("/goal status");
+      return;
+    case "thread.rename": {
+      const nameValue = argString(args, "name");
+      await client.setThreadName(nameValue);
+      latestReply = `Renamed Codex thread to ${nameValue}.`;
+      await runtime.sendText("Codex thread", latestReply);
+      return;
+    }
+    case "thread.compact":
+      await client.compactThread();
+      latestReply = "Started Codex context compaction.";
+      await runtime.emitEvent({
+        eventType: "task_running",
+        body: latestReply,
+        status: "busy",
+        metadata: codexMetadata()
+      });
+      return;
+    case "memory.mode": {
+      const enabled = args.enabled === true;
+      await client.setMemoryMode(enabled);
+      latestReply = enabled ? "Enabled Codex memory for this thread." : "Disabled Codex memory for this thread.";
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: latestReply,
+        metadata: codexMetadata()
+      });
+      return;
+    }
+    case "memory.reset":
+      await client.resetMemory();
+      latestReply = "Reset Codex local memories.";
+      await runtime.emitEvent({
+        eventType: "text_output",
+        body: latestReply,
+        metadata: codexMetadata()
+      });
+      return;
+    case "memory":
+      await runtime.sendText("Codex memory", "Use /memory on, /memory off, or /memory reset.");
+      return;
+    case "mcp.status": {
+      const servers = await client.listMcpServerStatus();
+      latestReply = servers.length > 0
+        ? servers.map((item) => [item.name, item.status, item.details].filter(Boolean).join(" · ")).join("\n")
+        : "No MCP servers reported by Codex.";
+      await runtime.sendText("Codex MCP status", latestReply);
+      return;
+    }
+    default:
+      await runtime.sendText(undefined, "Unsupported Codex structured command.");
+  }
 }
 
 runtime.onCommand(async (command) => {
@@ -1241,6 +1581,9 @@ runtime.onCommand(async (command) => {
         return;
       case "send_key":
         await runtime.sendText(undefined, "Special keys are not used in Codex app-server mode.");
+        return;
+      case "custom":
+        await dispatchCodexStructuredCommand(command.args ?? {});
         return;
     }
   }

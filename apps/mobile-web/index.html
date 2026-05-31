@@ -147,6 +147,18 @@
       </form>
     </dialog>
 
+    <dialog id="command-dialog">
+      <form method="dialog" class="dialog-card" id="command-form">
+        <h3 id="command-title">Command</h3>
+        <p class="dialog-note hidden" id="command-note"></p>
+        <div id="command-fields"></div>
+        <div class="dialog-actions">
+          <button type="button" class="text-button" id="cancel-command-button">Cancel</button>
+          <button type="submit" id="submit-command-button">Run</button>
+        </div>
+      </form>
+    </dialog>
+
     <template id="agent-card-template">
       <button class="agent-card" type="button">
         <span class="avatar"></span>
