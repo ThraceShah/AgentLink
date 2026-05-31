@@ -324,6 +324,17 @@ textarea {
   background: rgba(16, 20, 24, 0.96);
 }
 
+.runtime-strip {
+  min-height: 18px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 textarea {
   min-height: 44px;
   max-height: 120px;

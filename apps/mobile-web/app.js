@@ -39,6 +39,7 @@ const els = {
   keypad: document.querySelector("#keypad"),
   messageInput: document.querySelector("#message-input"),
   sendButton: document.querySelector("#send-button"),
+  runtimeStrip: document.querySelector("#runtime-strip"),
   sessionDialog: document.querySelector("#session-dialog"),
   sessionForm: document.querySelector("#session-form"),
   profileSelect: document.querySelector("#profile-select"),
@@ -281,6 +282,7 @@ function renderChat() {
     empty.className = "empty-state";
     empty.textContent = "Send a message or use a slash command.";
     els.timeline.append(empty);
+    renderRuntimeStrip(agent);
     return;
   }
 
@@ -290,6 +292,7 @@ function renderChat() {
   requestAnimationFrame(() => {
     els.timeline.scrollTop = els.timeline.scrollHeight;
   });
+  renderRuntimeStrip(agent);
 }
 
 function renderTimelineItem(item, agent) {
@@ -373,6 +376,40 @@ function renderEvent(event, agent) {
     item.append(link);
   }
   return item;
+}
+
+function renderRuntimeStrip(agent) {
+  const metadata = latestRuntimeMetadata(agent.agentId);
+  const model = stringValue(metadata?.model) || agent.kind;
+  const effort = stringValue(metadata?.reasoningEffort);
+  const remaining = contextRemainingPercent(metadata);
+  els.runtimeStrip.textContent = [
+    model,
+    effort ? `reasoning ${effort}` : "",
+    remaining != null ? `context ${remaining}% left` : "context --"
+  ].filter(Boolean).join(" · ");
+}
+
+function latestRuntimeMetadata(agentId) {
+  const candidates = eventsFor(agentId)
+    .map((event) => event.metadata)
+    .filter((metadata) => metadata && typeof metadata === "object")
+    .filter((metadata) =>
+      metadata.model
+      || metadata.reasoningEffort
+      || metadata.contextUsedTokens != null
+      || metadata.contextWindowTokens != null
+    );
+  return candidates.at(-1) ?? null;
+}
+
+function contextRemainingPercent(metadata) {
+  const used = numberValue(metadata?.contextUsedTokens);
+  const window = numberValue(metadata?.contextWindowTokens);
+  if (used == null || window == null || window <= 0) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.round(((window - used) / window) * 100)));
 }
 
 function renderSlashPanel() {
@@ -614,6 +651,15 @@ function truncateText(value, maxLength) {
     return normalized;
   }
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
+}
+
+function stringValue(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function numberValue(value) {
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function eventsFor(agentId) {
