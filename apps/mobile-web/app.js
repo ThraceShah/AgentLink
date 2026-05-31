@@ -8,6 +8,7 @@ const state = {
   socketState: "syncing",
   activeTuiMenu: null,
   codexImportCandidates: [],
+  selectedCodexImportCandidateId: null,
   notifiedEventIds: new Set(),
   pollTimer: null,
   reconnectTimer: null,
@@ -43,7 +44,7 @@ const els = {
   cancelSessionButton: document.querySelector("#cancel-session-button"),
   importDialog: document.querySelector("#import-dialog"),
   importForm: document.querySelector("#import-form"),
-  importCandidateSelect: document.querySelector("#import-candidate-select"),
+  importCandidateList: document.querySelector("#import-candidate-list"),
   importSessionNameInput: document.querySelector("#import-session-name-input"),
   importNote: document.querySelector("#import-note"),
   refreshImportButton: document.querySelector("#refresh-import-button"),
@@ -434,12 +435,29 @@ async function refreshCodexImportCandidates() {
 }
 
 function renderCodexImportCandidates() {
-  els.importCandidateSelect.replaceChildren();
+  els.importCandidateList.replaceChildren();
+  if (
+    state.codexImportCandidates.length > 0
+    && !state.codexImportCandidates.some((item) => item.candidateId === state.selectedCodexImportCandidateId)
+  ) {
+    state.selectedCodexImportCandidateId = state.codexImportCandidates[0].candidateId;
+  }
   for (const candidate of state.codexImportCandidates) {
-    const option = document.createElement("option");
-    option.value = candidate.candidateId;
-    option.textContent = `${candidate.tmuxSession} · ${candidate.title || candidate.threadId}`;
-    els.importCandidateSelect.append(option);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "candidate-item";
+    button.dataset.selected = candidate.candidateId === state.selectedCodexImportCandidateId ? "true" : "false";
+    const title = document.createElement("strong");
+    title.textContent = candidate.tmuxSession;
+    const meta = document.createElement("small");
+    meta.textContent = `${candidate.title || candidate.threadId} · ${candidate.confidence}`;
+    button.append(title, meta);
+    button.addEventListener("click", () => {
+      state.selectedCodexImportCandidateId = candidate.candidateId;
+      els.importSessionNameInput.value = `${candidate.tmuxSession}-agentlink`;
+      renderCodexImportCandidates();
+    });
+    els.importCandidateList.append(button);
   }
   const selected = selectedCodexImportCandidate();
   if (selected && !els.importSessionNameInput.value.trim()) {
@@ -455,7 +473,7 @@ function renderCodexImportCandidates() {
 }
 
 function selectedCodexImportCandidate() {
-  return state.codexImportCandidates.find((item) => item.candidateId === els.importCandidateSelect.value) ?? null;
+  return state.codexImportCandidates.find((item) => item.candidateId === state.selectedCodexImportCandidateId) ?? null;
 }
 
 function eventsFor(agentId) {
@@ -847,7 +865,6 @@ els.cancelSessionButton.addEventListener("click", () => els.sessionDialog.close(
 els.sessionForm.addEventListener("submit", createSession);
 els.refreshImportButton.addEventListener("click", () => void refreshCodexImportCandidates());
 els.cancelImportButton.addEventListener("click", () => els.importDialog.close());
-els.importCandidateSelect.addEventListener("change", renderCodexImportCandidates);
 els.importForm.addEventListener("submit", importCodexSession);
 els.agentSearch.addEventListener("input", renderAgents);
 els.backButton.addEventListener("click", showList);
