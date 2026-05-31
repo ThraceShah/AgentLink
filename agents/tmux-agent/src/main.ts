@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { AgentRuntime } from "../../../packages/sdk/src/index.js";
 import type { SlashCommandNode, TuiMenuSelect } from "../../../packages/protocol/src/index.js";
 import { buildExecCompletionResult, latestExecPreview } from "./exec-delivery.js";
-import { CodexAppServerClient, type CodexModelOption, type CodexPendingRequest, type ReasoningEffort } from "./codex-app-server.js";
+import { CodexAppServerClient, type CodexModelOption, type CodexOfficialStatus, type CodexPendingRequest, type ReasoningEffort } from "./codex-app-server.js";
 import { resolveProviderModel } from "./model-resolver.js";
 import { parseInteractiveCapture } from "./provider-interactive.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
@@ -139,12 +139,13 @@ const codexNativeCommands: SlashCommandNode[] = [
   {
     id: "status",
     label: "status",
-    description: "Show Codex session status",
+    description: "Show Codex status",
     commandType: "custom",
     args: { codexCommand: "status" },
     ui: { kind: "direct" }
   },
   { id: "iris-status", label: "iris-status", description: "Show bridge session status", commandType: "send_text" },
+  { id: "iris_status", label: "iris_status", description: "Show bridge session status", commandType: "send_text" },
   { id: "iris-new-thread", label: "iris-new-thread", description: "Start a new Codex thread", commandType: "send_text" },
   { id: "iris-clear-history", label: "iris-clear-history", description: "Clear this Hub timeline", commandType: "send_text" },
   { id: "iris-help", label: "iris-help", description: "Show AgentLink mobile commands", commandType: "send_text" }
@@ -1001,6 +1002,70 @@ function formatCodexStatus(): string {
   ].filter(Boolean).join("\n");
 }
 
+function formatOfficialCodexStatus(status: CodexOfficialStatus): string {
+  const account = status.account;
+  const rateLimits = status.rateLimits;
+  const config = status.config;
+  const authMode = stringValue(account?.authMode)
+    ?? stringValue(account?.mode)
+    ?? stringValue(account?.type);
+  const accountEmail = stringValue(account?.email)
+    ?? stringValue(account?.userEmail)
+    ?? stringValue(account?.accountEmail);
+  const plan = stringValue(account?.planType)
+    ?? stringValue(account?.chatgptPlanType)
+    ?? stringValue(account?.plan);
+  const serviceTier = stringValue(config?.serviceTier)
+    ?? stringValue(config?.service_tier);
+  const rateLimitSummary = formatRateLimitSummary(rateLimits);
+  return [
+    status.model ? `Model: ${status.model}` : undefined,
+    status.reasoningEffort ? `Reasoning: ${formatReasoningEffort(status.reasoningEffort)}` : undefined,
+    `Working directory: ${status.cwd}`,
+    status.approvalPolicy ? `Approval policy: ${status.approvalPolicy}` : undefined,
+    status.sandboxPolicy ? `Sandbox: ${status.sandboxPolicy}` : undefined,
+    serviceTier ? `Service tier: ${serviceTier}` : undefined,
+    authMode || accountEmail || plan
+      ? `Account: ${[accountEmail, plan, authMode].filter(Boolean).join(" · ")}`
+      : undefined,
+    rateLimitSummary ? `Rate limits: ${rateLimitSummary}` : undefined,
+    status.contextUsedTokens != null && status.contextWindowTokens != null
+      ? `Context: ${status.contextUsedTokens}/${status.contextWindowTokens}`
+      : undefined
+  ].filter(Boolean).join("\n");
+}
+
+function formatRateLimitSummary(value: Record<string, unknown> | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const snapshots = [
+    ...arrayValue(value.rateLimits),
+    ...arrayValue(value.limits),
+    ...arrayValue(value.data)
+  ].map(objectValue).filter(Boolean);
+  if (snapshots.length > 0) {
+    return snapshots.slice(0, 3).map((item) => {
+      const name = stringValue(item?.limitName) ?? stringValue(item?.name) ?? stringValue(item?.type) ?? "limit";
+      const used = numberValue(item?.usedPercent);
+      const resetsAt = stringValue(item?.resetsAt) ?? stringValue(item?.resetAt);
+      return [
+        name,
+        used != null ? `${Math.round(used)}% used` : undefined,
+        resetsAt ? `resets ${resetsAt}` : undefined
+      ].filter(Boolean).join(" ");
+    }).join("; ");
+  }
+  const used = numberValue(value.usedPercent);
+  const balance = numberValue(value.balance);
+  const hasCredits = typeof value.hasCredits === "boolean" ? value.hasCredits : undefined;
+  return [
+    used != null ? `${Math.round(used)}% used` : undefined,
+    balance != null ? `balance ${balance}` : undefined,
+    hasCredits != null ? `credits ${hasCredits ? "available" : "unavailable"}` : undefined
+  ].filter(Boolean).join(" · ") || undefined;
+}
+
 function formatCodexGoal(goal: { objective: string; status?: string; tokenBudget?: number | null; tokensUsed?: number; timeUsedSeconds?: number } | null): string {
   if (!goal) {
     return "No goal is currently set.";
@@ -1028,6 +1093,24 @@ function parsePositiveInteger(value: unknown): number | undefined {
 function argString(args: Record<string, unknown> | undefined, key: string): string {
   const value = args?.[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 async function clearHubTimeline(): Promise<void> {
@@ -1193,10 +1276,16 @@ async function dispatchCodexAppPrompt(prompt: string): Promise<void> {
 async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
   const normalized = prompt.trim();
   const client = await ensureCodexAppClient();
-  if (normalized === "/status" || normalized === "/iris-status") {
+  if (normalized === "/status") {
+    latestReply = formatOfficialCodexStatus(await client.getOfficialStatus());
+    await runtime.sendText("Codex status", latestReply);
+    return;
+  }
+
+  if (normalized === "/iris-status" || normalized === "/iris_status") {
     await client.getGoal().catch(() => null);
     latestReply = formatCodexStatus();
-    await runtime.sendText("Codex status", latestReply);
+    await runtime.sendText("AgentLink Codex status", latestReply);
     return;
   }
 
@@ -1212,7 +1301,8 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
       "/memory off|on|reset - manage Codex memory",
       "/mcp - show MCP server status",
       "/status - show Codex status",
-      "/iris-status - show bridge session, thread, model, cwd and context",
+      "/iris-status - show AgentLink bridge session, thread, model, cwd and context",
+      "/iris_status - alias of /iris-status",
       "/iris-new-thread - start a new Codex thread",
       "/iris-clear-history - clear this Hub timeline",
       "/iris-help - show this help"
@@ -1380,8 +1470,7 @@ async function dispatchCodexStructuredCommand(args: Record<string, unknown>): Pr
   const name = typeof args.codexCommand === "string" ? args.codexCommand : "";
   switch (name) {
     case "status":
-      await client.getGoal().catch(() => null);
-      latestReply = formatCodexStatus();
+      latestReply = formatOfficialCodexStatus(await client.getOfficialStatus());
       await runtime.sendText("Codex status", latestReply);
       return;
     case "model.list": {

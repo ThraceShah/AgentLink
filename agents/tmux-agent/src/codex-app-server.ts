@@ -42,6 +42,7 @@ type StoredCodexState = {
   reasoningEffort?: ReasoningEffort;
   cwd?: string;
   approvalPolicy?: string;
+  sandboxPolicy?: string;
 };
 
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -103,6 +104,7 @@ export type CodexSessionStatus = {
   reasoningEffort?: ReasoningEffort;
   cwd: string;
   approvalPolicy?: string;
+  sandboxPolicy?: string;
   contextUsedTokens?: number;
   contextWindowTokens?: number;
   goal?: CodexGoal | null;
@@ -123,6 +125,19 @@ export type CodexMcpServerStatus = {
   name: string;
   status?: string;
   details?: string;
+};
+
+export type CodexOfficialStatus = {
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  cwd: string;
+  approvalPolicy?: string;
+  sandboxPolicy?: string;
+  account?: Record<string, unknown>;
+  rateLimits?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+  contextUsedTokens?: number;
+  contextWindowTokens?: number;
 };
 
 type ActiveTurn = {
@@ -181,6 +196,7 @@ export class CodexAppServerClient {
   private preferredModel?: string;
   private reasoningEffort?: ReasoningEffort;
   private approvalPolicy?: string;
+  private sandboxPolicy?: string;
   private contextUsedTokens?: number;
   private contextWindowTokens?: number;
   private goal?: CodexGoal | null;
@@ -211,6 +227,7 @@ export class CodexAppServerClient {
       reasoningEffort: this.reasoningEffort,
       cwd: this.workingDir,
       approvalPolicy: this.approvalPolicy,
+      sandboxPolicy: this.sandboxPolicy,
       contextUsedTokens: this.contextUsedTokens,
       contextWindowTokens: this.contextWindowTokens,
       goal: this.goal
@@ -419,6 +436,27 @@ export class CodexAppServerClient {
     });
   }
 
+  async getOfficialStatus(): Promise<CodexOfficialStatus> {
+    await this.start();
+    const [account, rateLimits, config] = await Promise.all([
+      this.optionalRequest("account/read", {}),
+      this.optionalRequest("account/rateLimits/read", {}),
+      this.optionalRequest("config/read", {})
+    ]);
+    return {
+      model: this.currentModel ?? this.preferredModel,
+      reasoningEffort: this.reasoningEffort,
+      cwd: this.workingDir,
+      approvalPolicy: this.approvalPolicy,
+      sandboxPolicy: this.sandboxPolicy,
+      account: objectValue(account),
+      rateLimits: objectValue(rateLimits),
+      config: objectValue(config),
+      contextUsedTokens: this.contextUsedTokens,
+      contextWindowTokens: this.contextWindowTokens
+    };
+  }
+
   async startNewThread(): Promise<void> {
     await this.start();
     await this.resetThreadState();
@@ -432,6 +470,7 @@ export class CodexAppServerClient {
     currentModel?: string;
     reasoningEffort?: ReasoningEffort;
     approvalPolicy?: string;
+    sandboxPolicy?: string;
   }): Promise<void> {
     const payload: StoredCodexState = {
       threadId: input.threadId,
@@ -440,7 +479,8 @@ export class CodexAppServerClient {
       currentModel: input.currentModel,
       reasoningEffort: input.reasoningEffort,
       cwd: this.workingDir,
-      approvalPolicy: input.approvalPolicy
+      approvalPolicy: input.approvalPolicy,
+      sandboxPolicy: input.sandboxPolicy
     };
     await mkdir(this.bridgeDir, { recursive: true });
     await writeFile(this.statePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
@@ -448,6 +488,7 @@ export class CodexAppServerClient {
     this.currentModel = input.currentModel ?? input.preferredModel ?? this.currentModel;
     this.reasoningEffort = input.reasoningEffort ?? this.reasoningEffort;
     this.approvalPolicy = input.approvalPolicy ?? this.approvalPolicy;
+    this.sandboxPolicy = input.sandboxPolicy ?? this.sandboxPolicy;
   }
 
   async startTurn(prompt: string): Promise<void> {
@@ -783,6 +824,7 @@ export class CodexAppServerClient {
     this.threadId = stringValue(thread.id);
     this.currentModel = stringValue(payload.model) ?? this.currentModel ?? this.preferredModel;
     this.approvalPolicy = stringValue(payload.approvalPolicy) ?? this.approvalPolicy;
+    this.sandboxPolicy = stringValue(payload.sandbox) ?? stringValue(payload.sandboxPolicy) ?? this.sandboxPolicy ?? "workspace-write";
     void this.persistState();
   }
 
@@ -794,6 +836,7 @@ export class CodexAppServerClient {
       this.currentModel = this.currentModel ?? parsed.currentModel ?? parsed.preferredModel;
       this.reasoningEffort = this.reasoningEffort ?? reasoningEffortValue(parsed.reasoningEffort);
       this.approvalPolicy = this.approvalPolicy ?? parsed.approvalPolicy;
+      this.sandboxPolicy = this.sandboxPolicy ?? parsed.sandboxPolicy;
       return parsed;
     } catch {
       return {};
@@ -807,7 +850,8 @@ export class CodexAppServerClient {
       currentModel: this.currentModel,
       reasoningEffort: this.reasoningEffort,
       cwd: this.workingDir,
-      approvalPolicy: this.approvalPolicy
+      approvalPolicy: this.approvalPolicy,
+      sandboxPolicy: this.sandboxPolicy
     };
     await writeFile(this.statePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   }
@@ -1119,6 +1163,14 @@ export class CodexAppServerClient {
         reject(error instanceof Error ? error : new Error("Failed to talk to Codex app-server."));
       }
     });
+  }
+
+  private async optionalRequest(method: string, params: unknown): Promise<unknown> {
+    try {
+      return await this.request(method, params);
+    } catch {
+      return undefined;
+    }
   }
 
   private async respond(requestId: string, result: unknown): Promise<void> {
