@@ -270,7 +270,7 @@ function renderAgents() {
   }
 
   for (const agent of agents) {
-    const pendingApproval = latestPendingApproval(agent.agentId);
+    const pendingApproval = approvalPromptFor(agent);
     const node = els.agentTemplate.content.firstElementChild.cloneNode(true);
     node.classList.toggle("needs-approval", Boolean(pendingApproval));
     node.querySelector("strong").textContent = agent.displayName;
@@ -288,7 +288,7 @@ function renderChat() {
   if (!agent) {
     return;
   }
-  const pendingApproval = latestPendingApproval(agent.agentId);
+  const pendingApproval = approvalPromptFor(agent);
   els.chatTitle.textContent = agent.displayName;
   els.chatSubtitle.textContent = pendingApproval
     ? `${agent.kind} · approval needed · ${state.socketState === "live" ? "Live" : "Fallback"}`
@@ -453,7 +453,7 @@ function renderRuntimeStrip(agent, pendingApproval = null) {
     const bar = document.createElement("div");
     bar.className = "approval-strip";
     const label = document.createElement("span");
-    label.textContent = "Approval needed";
+    label.textContent = pendingApproval.metadata?.fallbackApproval === true ? "Maybe awaiting approval" : "Approval needed";
     bar.append(label);
     bar.append(renderApprovalActions(pendingApproval, agent.agentId));
     els.runtimeStrip.append(bar);
@@ -766,6 +766,37 @@ function latestPendingApproval(agentId) {
     || (event.eventType === "need_user_input" && event.status === "waiting_input")
   );
   return laterCompletion ? null : approval;
+}
+
+function approvalPromptFor(agent) {
+  const explicit = latestPendingApproval(agent.agentId);
+  if (explicit) {
+    return explicit;
+  }
+  if (
+    agent.kind !== "codex"
+    || agent.status !== "busy"
+    || !agent.capabilities?.includes("approve")
+  ) {
+    return null;
+  }
+  const fallbackId = `approval_fallback_${agent.agentId}_${agent.lastSeenAt || ""}`;
+  if (state.dismissedApprovalEventIds.has(fallbackId)) {
+    return null;
+  }
+  return {
+    id: fallbackId,
+    agentId: agent.agentId,
+    eventType: "need_approval",
+    timestamp: agent.lastSeenAt,
+    title: "Possible approval request",
+    body: "Codex is busy without a visible approval card. If it is waiting for permission, approve it here.",
+    status: "waiting_input",
+    metadata: {
+      fallbackApproval: true,
+      allowForSession: true
+    }
+  };
 }
 
 function selectAgent(agentId) {
