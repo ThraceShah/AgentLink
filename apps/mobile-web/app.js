@@ -454,26 +454,46 @@ function renderCodexImportCandidates() {
     button.append(title, meta);
     button.addEventListener("click", () => {
       state.selectedCodexImportCandidateId = candidate.candidateId;
-      els.importSessionNameInput.value = `${candidate.tmuxSession}-agentlink`;
+      if (!isTakeoverImportMode()) {
+        els.importSessionNameInput.value = `${candidate.tmuxSession}-agentlink`;
+      }
       renderCodexImportCandidates();
     });
     els.importCandidateList.append(button);
   }
   const selected = selectedCodexImportCandidate();
-  if (selected && !els.importSessionNameInput.value.trim()) {
+  if (selected && !els.importSessionNameInput.value.trim() && !isTakeoverImportMode()) {
     els.importSessionNameInput.value = `${selected.tmuxSession}-agentlink`;
   }
+  updateImportSessionMode();
   els.importNote.textContent = selected
     ? [
       selected.preview || selected.title || selected.threadId,
       selected.cwd,
-      selected.confidence === "exact" ? "Matched by thread id." : "Matched by latest Codex thread in cwd."
+      selected.confidence === "exact" ? "Matched by open Codex rollout file." : "Weak match; import is disabled."
     ].filter(Boolean).join("\n")
     : "No Codex tmux sessions found.";
 }
 
 function selectedCodexImportCandidate() {
   return state.codexImportCandidates.find((item) => item.candidateId === state.selectedCodexImportCandidateId) ?? null;
+}
+
+function updateImportSessionMode() {
+  const selected = selectedCodexImportCandidate();
+  if (isTakeoverImportMode()) {
+    els.importSessionNameInput.value = selected?.tmuxSession ?? "";
+    els.importSessionNameInput.disabled = true;
+  } else {
+    els.importSessionNameInput.disabled = false;
+    if (selected && (!els.importSessionNameInput.value.trim() || els.importSessionNameInput.value === selected.tmuxSession)) {
+      els.importSessionNameInput.value = `${selected.tmuxSession}-agentlink`;
+    }
+  }
+}
+
+function isTakeoverImportMode() {
+  return (document.querySelector("input[name='import-mode']:checked")?.value || "fork") === "takeover";
 }
 
 function eventsFor(agentId) {
@@ -866,6 +886,9 @@ els.sessionForm.addEventListener("submit", createSession);
 els.refreshImportButton.addEventListener("click", () => void refreshCodexImportCandidates());
 els.cancelImportButton.addEventListener("click", () => els.importDialog.close());
 els.importForm.addEventListener("submit", importCodexSession);
+for (const item of document.querySelectorAll("input[name='import-mode']")) {
+  item.addEventListener("change", updateImportSessionMode);
+}
 els.agentSearch.addEventListener("input", renderAgents);
 els.backButton.addEventListener("click", showList);
 els.deleteSessionButton.addEventListener("click", deleteSelectedSession);

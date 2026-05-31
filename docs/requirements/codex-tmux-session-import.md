@@ -11,7 +11,7 @@
 - 导入后继续工作必须走 `codex app-server`，不再通过 `tmux send-keys` 驱动原 TUI。
 - 用户导入时可以选择：
   - `fork`：保留原 tmux TUI，AgentLink 从原 Codex thread fork 出新 thread 后继续。
-  - `takeover`：退出原 tmux session，AgentLink 直接 resume 原 Codex thread 后继续。
+  - `takeover`：保留并复用原 tmux session，停止其中的 Codex TUI 进程后由 AgentLink app-server bridge 直接 resume 原 Codex thread 继续。
 
 ## 非目标
 
@@ -22,9 +22,9 @@
 ## 行为要求
 
 - `GET /api/codex/tmux-candidates` 返回可导入候选，包括 tmux session、pane、工作目录、Codex thread、标题、预览和更新时间。
-- `POST /api/codex/import-tmux` 根据候选创建 AgentLink codex session，并导入历史 timeline。
-- `fork` 模式应在 bridge 启动时调用 Codex app-server `thread/fork`，后续消息进入 fork 后的新 thread。
-- `takeover` 模式应在启动 AgentLink bridge 前停止原 tmux session，避免双端并发操作。
+- `POST /api/codex/import-tmux` 根据候选创建或接管 AgentLink codex session，并导入历史 timeline。
+- `fork` 模式应新建一个 AgentLink tmux session，并在 bridge 启动时调用 Codex app-server `thread/fork`，后续消息进入 fork 后的新 thread。
+- `takeover` 模式不应新建 tmux session；应复用候选所在 tmux session 名作为 AgentLink session id，在启动 AgentLink bridge 前只停止原 Codex TUI 进程，避免双端并发操作。
 - 如果本机缺少 `tmux`、`sqlite3`、Codex state DB 或 rollout 文件，接口应返回明确错误或空候选，而不是影响普通 Hub 功能。
 
 ## 验证要求

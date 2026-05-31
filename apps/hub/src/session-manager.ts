@@ -113,10 +113,6 @@ export class SessionManager {
     candidate: CodexTmuxCandidate;
     events: TimelineEvent[];
   }> {
-    const sessionName = sanitizeSessionName(input.sessionName);
-    if (!sessionName) {
-      throw new Error("session name is required");
-    }
     const candidate = await this.codexImporter.findCandidate(input.candidateId);
     if (!candidate) {
       throw new Error("Codex tmux candidate was not found");
@@ -124,9 +120,16 @@ export class SessionManager {
     if (input.mode !== "fork" && input.mode !== "takeover") {
       throw new Error("import mode must be fork or takeover");
     }
-    if (input.mode === "fork" && sessionName === candidate.tmuxSession) {
+    const requestedSessionName = sanitizeSessionName(input.sessionName);
+    if (input.mode === "fork" && !requestedSessionName) {
+      throw new Error("session name is required");
+    }
+    if (input.mode === "fork" && requestedSessionName === candidate.tmuxSession) {
       throw new Error("fork import requires a new AgentLink session name");
     }
+    const agentLinkSessionName = input.mode === "takeover"
+      ? candidate.tmuxSession
+      : requestedSessionName;
 
     const profile = (await this.listProfiles()).find((item) => item.id === "codex");
     if (!profile) {
@@ -142,8 +145,8 @@ export class SessionManager {
     }
 
     await mkdir(candidate.cwd, { recursive: true });
-    await this.ensureTmuxSession(sessionName, profile, candidate.cwd);
-    await this.startBridge(sessionName, profile, input.hubUrl, candidate.cwd, {
+    await this.ensureTmuxSession(agentLinkSessionName, profile, candidate.cwd);
+    await this.startBridge(agentLinkSessionName, profile, input.hubUrl, candidate.cwd, {
       resumeThreadId: input.mode === "takeover" ? candidate.threadId : undefined,
       forkFromThreadId: input.mode === "fork" ? candidate.threadId : undefined,
       model: candidate.model,
@@ -152,9 +155,9 @@ export class SessionManager {
     const events = await this.codexImporter.readTimeline({
       id: candidate.threadId,
       rolloutPath: candidate.rolloutPath
-    }, sessionName);
+    }, agentLinkSessionName);
 
-    return { sessionName, candidate, events };
+    return { sessionName: agentLinkSessionName, candidate, events };
   }
 
   async deleteSession(sessionNameInput: string): Promise<{ sessionName: string }> {
