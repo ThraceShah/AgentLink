@@ -35,6 +35,8 @@ const els = {
   agentSearch: document.querySelector("#agent-search"),
   agentList: document.querySelector("#agent-list"),
   backButton: document.querySelector("#back-button"),
+  bottomBackButton: document.querySelector("#bottom-back-button"),
+  jumpTopButton: document.querySelector("#jump-top-button"),
   deleteSessionButton: document.querySelector("#delete-session-button"),
   chatTitle: document.querySelector("#chat-title"),
   chatSubtitle: document.querySelector("#chat-subtitle"),
@@ -772,19 +774,69 @@ function approvalPromptFor(agent) {
   return latestPendingApproval(agent.agentId);
 }
 
-function selectAgent(agentId) {
+function selectAgent(agentId, { updateHistory = true } = {}) {
   state.selectedAgentId = agentId;
   els.listScreen.classList.add("hidden");
   els.chatScreen.classList.remove("hidden");
+  if (updateHistory && history.state?.agentId !== agentId) {
+    history.pushState({ screen: "chat", agentId }, "", `#session=${encodeURIComponent(agentId)}`);
+  }
   render();
 }
 
-function showList() {
+function showList({ updateHistory = true } = {}) {
+  state.selectedAgentId = null;
+  els.chatScreen.classList.add("hidden");
+  els.listScreen.classList.remove("hidden");
+  if (updateHistory && history.state?.screen === "chat") {
+    history.pushState({ screen: "list" }, "", window.location.pathname + window.location.search);
+  }
+  render();
+}
+
+function showListFromBackNavigation() {
   state.selectedAgentId = null;
   els.chatScreen.classList.add("hidden");
   els.listScreen.classList.remove("hidden");
   render();
 }
+
+function navigateBackToList() {
+  if (history.state?.screen === "chat") {
+    history.back();
+  } else {
+    showList();
+  }
+}
+
+function jumpTimelineTop() {
+  els.timeline.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function sessionIdFromHash() {
+  const match = window.location.hash.match(/^#session=(.+)$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function initializeNavigationState() {
+  const agentId = sessionIdFromHash();
+  if (agentId && state.agents.some((agent) => agent.agentId === agentId)) {
+    history.replaceState({ screen: "chat", agentId }, "", window.location.href);
+    selectAgent(agentId, { updateHistory: false });
+    return;
+  }
+  history.replaceState({ screen: "list" }, "", window.location.pathname + window.location.search);
+  showList({ updateHistory: false });
+}
+
+window.addEventListener("popstate", (event) => {
+  const agentId = event.state?.agentId;
+  if (event.state?.screen === "chat" && agentId && state.agents.some((agent) => agent.agentId === agentId)) {
+    selectAgent(agentId, { updateHistory: false });
+    return;
+  }
+  showListFromBackNavigation();
+});
 
 function isVisibleEvent(event) {
   if (event.metadata?.structured === true) {
@@ -1602,7 +1654,9 @@ for (const item of document.querySelectorAll("input[name='import-mode']")) {
   item.addEventListener("change", updateImportSessionMode);
 }
 els.agentSearch.addEventListener("input", renderAgents);
-els.backButton.addEventListener("click", showList);
+els.backButton.addEventListener("click", navigateBackToList);
+els.bottomBackButton.addEventListener("click", navigateBackToList);
+els.jumpTopButton.addEventListener("click", jumpTimelineTop);
 els.deleteSessionButton.addEventListener("click", deleteSelectedSession);
 els.sendButton.addEventListener("click", sendCurrentMessage);
 els.messageInput.addEventListener("input", renderSlashPanel);
@@ -1643,5 +1697,5 @@ setInterval(() => {
 
 refreshAll().then(() => {
   connectSocket();
-  render();
+  initializeNavigationState();
 });

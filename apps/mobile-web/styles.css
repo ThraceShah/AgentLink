@@ -373,6 +373,19 @@ textarea {
   background: rgba(16, 20, 24, 0.96);
 }
 
+.chat-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chat-actions button {
+  min-height: 32px;
+  padding: 0 8px;
+  color: var(--muted);
+}
+
 .runtime-strip {
   min-height: 18px;
   margin-top: 6px;
