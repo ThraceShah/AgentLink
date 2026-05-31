@@ -440,17 +440,19 @@ function renderCodexImportCandidates() {
     state.codexImportCandidates.length > 0
     && !state.codexImportCandidates.some((item) => item.candidateId === state.selectedCodexImportCandidateId)
   ) {
-    state.selectedCodexImportCandidateId = state.codexImportCandidates[0].candidateId;
+    const firstImportable = state.codexImportCandidates.find((item) => item.importable);
+    state.selectedCodexImportCandidateId = (firstImportable ?? state.codexImportCandidates[0]).candidateId;
   }
   for (const candidate of state.codexImportCandidates) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "candidate-item";
     button.dataset.selected = candidate.candidateId === state.selectedCodexImportCandidateId ? "true" : "false";
+    button.dataset.importable = candidate.importable ? "true" : "false";
     const title = document.createElement("strong");
     title.textContent = candidate.tmuxSession;
     const meta = document.createElement("small");
-    meta.textContent = `${candidate.title || candidate.threadId} · ${candidate.confidence}`;
+    meta.textContent = `${candidate.title || candidate.threadId || "No thread match"} · ${candidate.importable ? candidate.confidence : "not importable"}`;
     button.append(title, meta);
     button.addEventListener("click", () => {
       state.selectedCodexImportCandidateId = candidate.candidateId;
@@ -466,11 +468,19 @@ function renderCodexImportCandidates() {
     els.importSessionNameInput.value = `${selected.tmuxSession}-agentlink`;
   }
   updateImportSessionMode();
+  const importSubmit = els.importForm.querySelector("button[type='submit']");
+  if (importSubmit) {
+    importSubmit.disabled = !selected?.importable;
+  }
   els.importNote.textContent = selected
     ? [
       selected.preview || selected.title || selected.threadId,
       selected.cwd,
-      selected.confidence === "exact" ? "Matched by open Codex rollout file." : "Weak match; import is disabled."
+      selected.importable
+        ? selected.confidence === "exact"
+          ? "Matched by open Codex rollout file."
+          : "Matched by visible prompt and a unique persisted Codex thread."
+        : selected.reason || "Detected Codex TUI, but this pane is not importable yet."
     ].filter(Boolean).join("\n")
     : "No Codex tmux sessions found.";
 }
@@ -758,6 +768,10 @@ async function importCodexSession(event) {
   const candidate = selectedCodexImportCandidate();
   if (!candidate) {
     toast("No Codex tmux session selected.");
+    return;
+  }
+  if (!candidate.importable) {
+    toast(candidate.reason || "Selected Codex tmux session is not importable yet.");
     return;
   }
   const mode = document.querySelector("input[name='import-mode']:checked")?.value || "fork";

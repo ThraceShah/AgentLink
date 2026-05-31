@@ -29,7 +29,9 @@ export type CodexTmuxCandidate = {
   reasoningEffort?: string;
   rolloutPath?: string;
   updatedAt?: string;
-  confidence: "exact" | "cwd_latest";
+  importable: boolean;
+  reason?: string;
+  confidence: "exact" | "visible_prompt_unique" | "unmatched";
 };
 
 export type CodexThreadRecord = {
@@ -73,17 +75,22 @@ export class CodexTmuxImporter {
       }
 
       const explicitThreadId = extractThreadId(codexProcess.args);
+      const visiblePrompt = await captureVisiblePrompt(pane.paneId);
       const thread = rolloutPath
         ? threads.find((item) => item.rolloutPath === rolloutPath)
         : explicitThreadId
           ? threads.find((item) => item.id === explicitThreadId)
-          : undefined;
-      if (!thread) {
-        continue;
-      }
+          : visiblePrompt
+            ? await findThreadByVisiblePrompt(threads, pane.cwd, visiblePrompt)
+            : undefined;
+      const confidence = rolloutPath || explicitThreadId
+        ? "exact"
+        : thread
+          ? "visible_prompt_unique"
+          : "unmatched";
 
       candidates.push({
-        candidateId: `${pane.paneId}:${thread.id}`,
+        candidateId: `${pane.paneId}:${thread?.id ?? "unmatched"}`,
         tmuxSession: pane.tmuxSession,
         windowIndex: pane.windowIndex,
         paneIndex: pane.paneIndex,
@@ -93,18 +100,29 @@ export class CodexTmuxImporter {
         args: codexProcess.args,
         codexPid: codexProcess.pid,
         cwd: pane.cwd,
-        threadId: thread.id,
-        title: thread.title || thread.preview || "Codex session",
-        preview: thread.preview || thread.title || "",
-        model: thread.model,
-        reasoningEffort: thread.reasoningEffort,
-        rolloutPath: thread.rolloutPath,
-        updatedAt: thread.updatedAt,
-        confidence: rolloutPath || explicitThreadId ? "exact" : "cwd_latest"
+        threadId: thread?.id ?? "",
+        title: thread?.title || thread?.preview || "Codex TUI detected",
+        preview: thread?.preview || thread?.title || visiblePrompt || "",
+        model: thread?.model,
+        reasoningEffort: thread?.reasoningEffort,
+        rolloutPath: thread?.rolloutPath,
+        updatedAt: thread?.updatedAt,
+        importable: Boolean(thread),
+        reason: thread
+          ? undefined
+          : visiblePrompt
+            ? "Codex TUI is running, but no persisted Codex thread uniquely matches the visible prompt yet."
+            : "Codex TUI is running, but Hub could not find an open rollout file or explicit thread id.",
+        confidence
       });
     }
 
-    return candidates.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+    return candidates.sort((a, b) => {
+      if (a.importable !== b.importable) {
+        return a.importable ? -1 : 1;
+      }
+      return (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "");
+    });
   }
 
   async findCandidate(candidateId: string): Promise<CodexTmuxCandidate | undefined> {
@@ -278,6 +296,81 @@ async function findOpenRolloutPath(processes: ProcessInfo[]): Promise<string | u
     }
   }
   return undefined;
+}
+
+async function captureVisiblePrompt(paneId: string): Promise<string | undefined> {
+  let stdout: string;
+  try {
+    const result = await execFileAsync("tmux", ["capture-pane", "-t", paneId, "-p", "-S", "-120"], {
+      encoding: "utf8"
+    });
+    stdout = result.stdout;
+  } catch {
+    return undefined;
+  }
+  const lines = stdout.split("\n").map((line) => line.trimEnd());
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const match = lines[index]?.match(/^›\s+(.+)$/);
+    if (match?.[1]?.trim()) {
+      return match[1].trim();
+    }
+  }
+  return undefined;
+}
+
+async function findThreadByVisiblePrompt(
+  threads: CodexThreadRecord[],
+  cwd: string,
+  visiblePrompt: string
+): Promise<CodexThreadRecord | undefined> {
+  const matches: CodexThreadRecord[] = [];
+  for (const thread of threads) {
+    if (thread.cwd !== cwd || !thread.rolloutPath) {
+      continue;
+    }
+    let content: string;
+    try {
+      content = await readFile(thread.rolloutPath, "utf8");
+    } catch {
+      continue;
+    }
+    if (rolloutContainsUserMessage(content, visiblePrompt)) {
+      matches.push(thread);
+    }
+  }
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function rolloutContainsUserMessage(content: string, expected: string): boolean {
+  const normalizedExpected = normalizePrompt(expected);
+  if (!normalizedExpected) {
+    return false;
+  }
+  for (const line of content.split("\n")) {
+    if (!line.trim()) {
+      continue;
+    }
+    let item: Record<string, unknown>;
+    try {
+      item = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const payload = objectValue(item.payload);
+    const message = payload?.type === "message" ? payload : undefined;
+    if (stringValue(message?.role) !== "user") {
+      continue;
+    }
+    const text = extractMessageText(message?.content);
+    if (text && normalizePrompt(text) === normalizedExpected) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizePrompt(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }
 
 export function parseCodexRolloutTimeline(content: string, agentId: string, threadId: string): TimelineEvent[] {

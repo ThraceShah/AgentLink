@@ -104,3 +104,4 @@
 - 完成 `AgentLink` 品牌调整：Android 应用显示名与项目对外标题统一为 `AgentLink`，并新增根目录 `MIT` 许可协议文件。
 - 完成 Android 包名切换：客户端 `namespace` 与 `applicationId` 已从 `im.agent.personal` 改为 `im.agent.link`，并同步更新 Kotlin 包声明、Android 自测脚本与 adb 调试文档。
 - 统一 Android 交付 APK 命名：标准调试包输出路径已从 `temp_docs/apk/personal-agent-im-debug.apk` 改为 `temp_docs/apk/agentlink-debug.apk`，并同步更新自测 skill 与正式文档引用。
+- 修复 Codex tmux 导入候选识别：Hub 现在会返回检测到但暂不可导入的 Codex TUI pane，并在缺少唯一持久化 thread 匹配时给出原因，避免同工作目录下误绑定到错误历史会话。

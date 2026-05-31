@@ -117,6 +117,9 @@ export class SessionManager {
     if (!candidate) {
       throw new Error("Codex tmux candidate was not found");
     }
+    if (!candidate.importable || !candidate.threadId) {
+      throw new Error(candidate.reason || "Codex tmux candidate is not importable");
+    }
     if (input.mode !== "fork" && input.mode !== "takeover") {
       throw new Error("import mode must be fork or takeover");
     }

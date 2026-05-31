@@ -21,7 +21,8 @@
 
 ## 行为要求
 
-- `GET /api/codex/tmux-candidates` 返回可导入候选，包括 tmux session、pane、工作目录、Codex thread、标题、预览和更新时间。
+- `GET /api/codex/tmux-candidates` 返回检测到的 Codex tmux pane，包括 tmux session、pane、工作目录、Codex thread、标题、预览、更新时间、是否可导入和不可导入原因。
+- Hub 只有在能通过打开的 rollout 文件、显式 thread id，或“可见提示词唯一匹配持久化 Codex thread”确认 thread 时，才允许导入；否则候选应展示为不可导入，避免绑定到同一工作目录下的错误历史 thread。
 - `POST /api/codex/import-tmux` 根据候选创建或接管 AgentLink codex session，并导入历史 timeline。
 - `fork` 模式应新建一个 AgentLink tmux session，并在 bridge 启动时调用 Codex app-server `thread/fork`，后续消息进入 fork 后的新 thread。
 - `takeover` 模式不应新建 tmux session；应复用候选所在 tmux session 名作为 AgentLink session id，在启动 AgentLink bridge 前只停止原 Codex TUI 进程，避免双端并发操作。
