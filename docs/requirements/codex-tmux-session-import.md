@@ -8,6 +8,7 @@
 
 - Hub 能扫描本机 tmux pane，识别前台或进程树中运行 Codex TUI 的 pane。
 - Hub 能基于 Codex 本地记录恢复该 thread 的用户消息和最终 assistant 回复，作为 AgentLink timeline 导入。
+- Hub 能在用户指定工作目录后，查询该目录对应的 Codex 历史 thread，并恢复为新的 AgentLink/tmux 会话。
 - 导入后继续工作必须走 `codex app-server`，不再通过 `tmux send-keys` 驱动原 TUI。
 - 用户导入时可以选择：
   - `fork`：保留原 tmux TUI，AgentLink 从原 Codex thread fork 出新 thread 后继续。
@@ -24,8 +25,11 @@
 - `GET /api/codex/tmux-candidates` 返回检测到的 Codex tmux pane，包括 tmux session、pane、工作目录、Codex thread、标题、预览、更新时间、是否可导入和不可导入原因。
 - Hub 只有在能通过打开的 rollout 文件、显式 thread id，或“可见提示词唯一匹配持久化 Codex thread”确认 thread 时，才允许导入；否则候选应展示为不可导入，避免绑定到同一工作目录下的错误历史 thread。
 - `POST /api/codex/import-tmux` 根据候选创建或接管 AgentLink codex session，并导入历史 timeline。
+- `GET /api/codex/history-candidates?workdir=...` 根据用户指定目录查询 Codex 历史 thread，返回标题、预览、模型、推理等级、更新时间和是否可导入。
+- `POST /api/codex/import-history` 根据指定历史 thread 新建 AgentLink tmux session，通过 Codex app-server resume 原 thread，并导入该 thread 的历史 timeline。
 - `fork` 模式应新建一个 AgentLink tmux session，并在 bridge 启动时调用 Codex app-server `thread/fork`，后续消息进入 fork 后的新 thread。
 - `takeover` 模式不应新建 tmux session；应复用候选所在 tmux session 名作为 AgentLink session id，在启动 AgentLink bridge 前只停止原 Codex TUI 进程，避免双端并发操作。
+- 历史导入不依赖现存 tmux TUI，也不停止任何既有进程；导入结果始终是一个新的 AgentLink/tmux 会话。
 - 如果本机缺少 `tmux`、`sqlite3`、Codex state DB 或 rollout 文件，接口应返回明确错误或空候选，而不是影响普通 Hub 功能。
 
 ## 验证要求

@@ -8,7 +8,9 @@ const state = {
   socketState: "syncing",
   activeTuiMenu: null,
   codexImportCandidates: [],
+  codexHistoryCandidates: [],
   selectedCodexImportCandidateId: null,
+  selectedCodexHistoryCandidateId: null,
   notifiedEventIds: new Set(),
   pollTimer: null,
   reconnectTimer: null,
@@ -45,6 +47,9 @@ const els = {
   importDialog: document.querySelector("#import-dialog"),
   importForm: document.querySelector("#import-form"),
   importCandidateList: document.querySelector("#import-candidate-list"),
+  tmuxImportMode: document.querySelector("#tmux-import-mode"),
+  historyWorkdirLabel: document.querySelector("#history-workdir-label"),
+  historyWorkdirInput: document.querySelector("#history-workdir-input"),
   importSessionNameInput: document.querySelector("#import-session-name-input"),
   importNote: document.querySelector("#import-note"),
   refreshImportButton: document.querySelector("#refresh-import-button"),
@@ -418,11 +423,18 @@ function openSessionDialog() {
 }
 
 async function openImportDialog() {
+  if (!els.historyWorkdirInput.value.trim()) {
+    els.historyWorkdirInput.value = state.sessionConfig.workspaceRootHint || "~/code";
+  }
   await refreshCodexImportCandidates();
   els.importDialog.showModal();
 }
 
 async function refreshCodexImportCandidates() {
+  if (isHistoryImportSource()) {
+    await refreshCodexHistoryCandidates();
+    return;
+  }
   try {
     const payload = await api("/api/codex/tmux-candidates");
     state.codexImportCandidates = payload.candidates ?? [];
@@ -432,6 +444,69 @@ async function refreshCodexImportCandidates() {
     renderCodexImportCandidates();
     toast(error.message || "Failed to scan Codex sessions");
   }
+}
+
+async function refreshCodexHistoryCandidates() {
+  try {
+    const workdir = els.historyWorkdirInput.value.trim();
+    const payload = await api(`/api/codex/history-candidates?workdir=${encodeURIComponent(workdir)}`);
+    state.codexHistoryCandidates = payload.candidates ?? [];
+    renderCodexHistoryCandidates();
+  } catch (error) {
+    state.codexHistoryCandidates = [];
+    renderCodexHistoryCandidates();
+    toast(error.message || "Failed to scan Codex history");
+  }
+}
+
+function renderCodexHistoryCandidates() {
+  els.importCandidateList.replaceChildren();
+  if (
+    state.codexHistoryCandidates.length > 0
+    && !state.codexHistoryCandidates.some((item) => item.candidateId === state.selectedCodexHistoryCandidateId)
+  ) {
+    const firstImportable = state.codexHistoryCandidates.find((item) => item.importable);
+    state.selectedCodexHistoryCandidateId = (firstImportable ?? state.codexHistoryCandidates[0]).candidateId;
+  }
+  for (const candidate of state.codexHistoryCandidates) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "candidate-item";
+    button.dataset.selected = candidate.candidateId === state.selectedCodexHistoryCandidateId ? "true" : "false";
+    button.dataset.importable = candidate.importable ? "true" : "false";
+    const title = document.createElement("strong");
+    title.textContent = candidate.title || candidate.preview || candidate.id;
+    const meta = document.createElement("small");
+    meta.textContent = [
+      candidate.updatedAt ? new Date(candidate.updatedAt).toLocaleString() : "",
+      candidate.importable ? candidate.model || "codex" : "not importable"
+    ].filter(Boolean).join(" · ");
+    button.append(title, meta);
+    button.addEventListener("click", () => {
+      state.selectedCodexHistoryCandidateId = candidate.candidateId;
+      if (!els.importSessionNameInput.value.trim()) {
+        els.importSessionNameInput.value = `${historySessionNameBase(candidate)}-agentlink`;
+      }
+      renderCodexHistoryCandidates();
+    });
+    els.importCandidateList.append(button);
+  }
+  const selected = selectedCodexHistoryCandidate();
+  if (selected && !els.importSessionNameInput.value.trim()) {
+    els.importSessionNameInput.value = `${historySessionNameBase(selected)}-agentlink`;
+  }
+  updateImportSourceMode();
+  const importSubmit = els.importForm.querySelector("button[type='submit']");
+  if (importSubmit) {
+    importSubmit.disabled = !selected?.importable;
+  }
+  els.importNote.textContent = selected
+    ? [
+      selected.preview || selected.title || selected.id,
+      selected.cwd,
+      selected.importable ? "Matched Codex history thread for this workdir." : selected.reason
+    ].filter(Boolean).join("\n")
+    : "No Codex history found for this workdir.";
 }
 
 function renderCodexImportCandidates() {
@@ -489,6 +564,10 @@ function selectedCodexImportCandidate() {
   return state.codexImportCandidates.find((item) => item.candidateId === state.selectedCodexImportCandidateId) ?? null;
 }
 
+function selectedCodexHistoryCandidate() {
+  return state.codexHistoryCandidates.find((item) => item.candidateId === state.selectedCodexHistoryCandidateId) ?? null;
+}
+
 function updateImportSessionMode() {
   const selected = selectedCodexImportCandidate();
   if (isTakeoverImportMode()) {
@@ -502,8 +581,27 @@ function updateImportSessionMode() {
   }
 }
 
+function updateImportSourceMode() {
+  const history = isHistoryImportSource();
+  els.tmuxImportMode.classList.toggle("hidden", history);
+  els.historyWorkdirLabel.classList.toggle("hidden", !history);
+  if (history) {
+    els.importSessionNameInput.disabled = false;
+  } else {
+    updateImportSessionMode();
+  }
+}
+
 function isTakeoverImportMode() {
   return (document.querySelector("input[name='import-mode']:checked")?.value || "fork") === "takeover";
+}
+
+function isHistoryImportSource() {
+  return (document.querySelector("input[name='import-source']:checked")?.value || "tmux") === "history";
+}
+
+function historySessionNameBase(candidate) {
+  return (candidate.title || candidate.preview || "codex-history").toLowerCase().slice(0, 32);
 }
 
 function eventsFor(agentId) {
@@ -765,6 +863,10 @@ async function createSession(event) {
 
 async function importCodexSession(event) {
   event.preventDefault();
+  if (isHistoryImportSource()) {
+    await importCodexHistorySession();
+    return;
+  }
   const candidate = selectedCodexImportCandidate();
   if (!candidate) {
     toast("No Codex tmux session selected.");
@@ -789,6 +891,33 @@ async function importCodexSession(event) {
     selectAgent(payload.sessionName);
   } catch (error) {
     toast(error.message || "Failed to import Codex session");
+  }
+}
+
+async function importCodexHistorySession() {
+  const candidate = selectedCodexHistoryCandidate();
+  if (!candidate) {
+    toast("No Codex history selected.");
+    return;
+  }
+  if (!candidate.importable) {
+    toast(candidate.reason || "Selected Codex history is not importable.");
+    return;
+  }
+  try {
+    const payload = await api("/api/codex/import-history", {
+      method: "POST",
+      body: JSON.stringify({
+        threadId: candidate.id,
+        workdir: els.historyWorkdirInput.value.trim(),
+        sessionName: els.importSessionNameInput.value.trim()
+      })
+    });
+    els.importDialog.close();
+    await refreshAll();
+    selectAgent(payload.sessionName);
+  } catch (error) {
+    toast(error.message || "Failed to import Codex history");
   }
 }
 
@@ -900,6 +1029,22 @@ els.sessionForm.addEventListener("submit", createSession);
 els.refreshImportButton.addEventListener("click", () => void refreshCodexImportCandidates());
 els.cancelImportButton.addEventListener("click", () => els.importDialog.close());
 els.importForm.addEventListener("submit", importCodexSession);
+for (const item of document.querySelectorAll("input[name='import-source']")) {
+  item.addEventListener("change", () => {
+    state.selectedCodexImportCandidateId = null;
+    state.selectedCodexHistoryCandidateId = null;
+    els.importSessionNameInput.value = "";
+    updateImportSourceMode();
+    void refreshCodexImportCandidates();
+  });
+}
+els.historyWorkdirInput.addEventListener("change", () => {
+  state.selectedCodexHistoryCandidateId = null;
+  els.importSessionNameInput.value = "";
+  if (isHistoryImportSource()) {
+    void refreshCodexHistoryCandidates();
+  }
+});
 for (const item of document.querySelectorAll("input[name='import-mode']")) {
   item.addEventListener("change", updateImportSessionMode);
 }

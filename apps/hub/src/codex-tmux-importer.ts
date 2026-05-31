@@ -46,6 +46,12 @@ export type CodexThreadRecord = {
   updatedAtMs?: number;
 };
 
+export type CodexHistoryCandidate = CodexThreadRecord & {
+  candidateId: string;
+  importable: boolean;
+  reason?: string;
+};
+
 export class CodexTmuxImporter {
   async listCandidates(): Promise<CodexTmuxCandidate[]> {
     const [panes, processes, threads] = await Promise.all([
@@ -127,6 +133,22 @@ export class CodexTmuxImporter {
 
   async findCandidate(candidateId: string): Promise<CodexTmuxCandidate | undefined> {
     return (await this.listCandidates()).find((item) => item.candidateId === candidateId);
+  }
+
+  async listHistoryCandidates(cwd: string): Promise<CodexHistoryCandidate[]> {
+    const threads = await this.listCodexThreads();
+    return threads
+      .filter((thread) => thread.cwd === cwd)
+      .map((thread) => ({
+        ...thread,
+        candidateId: thread.id,
+        importable: Boolean(thread.rolloutPath),
+        reason: thread.rolloutPath ? undefined : "Codex thread has no rollout file to restore timeline from."
+      }));
+  }
+
+  async findHistoryCandidate(cwd: string, threadId: string): Promise<CodexHistoryCandidate | undefined> {
+    return (await this.listHistoryCandidates(cwd)).find((item) => item.id === threadId);
   }
 
   async readTimeline(thread: Pick<CodexThreadRecord, "id" | "rolloutPath">, agentId: string): Promise<TimelineEvent[]> {

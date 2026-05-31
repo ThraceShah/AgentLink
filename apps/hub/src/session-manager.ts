@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type { TimelineEvent } from "../../../packages/protocol/src/index.js";
-import { CodexTmuxImporter, type CodexTmuxCandidate } from "./codex-tmux-importer.js";
+import { CodexTmuxImporter, type CodexHistoryCandidate, type CodexTmuxCandidate } from "./codex-tmux-importer.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +29,13 @@ export type ImportCodexTmuxInput = {
   candidateId: string;
   mode: "fork" | "takeover";
   sessionName: string;
+  hubUrl: string;
+};
+
+export type ImportCodexHistoryInput = {
+  threadId: string;
+  sessionName: string;
+  workdir: string;
   hubUrl: string;
 };
 
@@ -108,6 +115,17 @@ export class SessionManager {
     return this.codexImporter.listCandidates();
   }
 
+  async listCodexHistoryCandidates(workdir: string): Promise<{
+    workdir: string;
+    candidates: CodexHistoryCandidate[];
+  }> {
+    const workingDirectory = resolveWorkingDirectory(workdir);
+    return {
+      workdir: workingDirectory,
+      candidates: await this.codexImporter.listHistoryCandidates(workingDirectory)
+    };
+  }
+
   async importCodexTmuxSession(input: ImportCodexTmuxInput): Promise<{
     sessionName: string;
     candidate: CodexTmuxCandidate;
@@ -161,6 +179,41 @@ export class SessionManager {
     }, agentLinkSessionName);
 
     return { sessionName: agentLinkSessionName, candidate, events };
+  }
+
+  async importCodexHistorySession(input: ImportCodexHistoryInput): Promise<{
+    sessionName: string;
+    candidate: CodexHistoryCandidate;
+    events: TimelineEvent[];
+  }> {
+    const requestedSessionName = sanitizeSessionName(input.sessionName);
+    if (!requestedSessionName) {
+      throw new Error("session name is required");
+    }
+    const workingDirectory = resolveWorkingDirectory(input.workdir);
+    const candidate = await this.codexImporter.findHistoryCandidate(workingDirectory, input.threadId);
+    if (!candidate) {
+      throw new Error("Codex history thread was not found for workdir");
+    }
+    if (!candidate.importable || !candidate.rolloutPath) {
+      throw new Error(candidate.reason || "Codex history thread is not importable");
+    }
+
+    const profile = (await this.listProfiles()).find((item) => item.id === "codex");
+    if (!profile) {
+      throw new Error("codex profile is unavailable");
+    }
+
+    await mkdir(workingDirectory, { recursive: true });
+    await this.ensureTmuxSession(requestedSessionName, profile, workingDirectory);
+    await this.startBridge(requestedSessionName, profile, input.hubUrl, workingDirectory, {
+      resumeThreadId: candidate.id,
+      model: candidate.model,
+      reasoningEffort: candidate.reasoningEffort
+    });
+    const events = await this.codexImporter.readTimeline(candidate, requestedSessionName);
+
+    return { sessionName: requestedSessionName, candidate, events };
   }
 
   async deleteSession(sessionNameInput: string): Promise<{ sessionName: string }> {
@@ -340,11 +393,30 @@ function sanitizeSessionName(input: string): string {
 }
 
 function resolveWorkingDirectory(workdir: string): string {
-  const sanitized = sanitizeWorkdir(workdir);
+  const trimmed = workdir.trim();
+  if (!trimmed) {
+    throw new Error("workdir is required");
+  }
+  const workspaceRoot = resolveWorkspaceRoot();
+  const home = homedir();
+  const expanded = trimmed === "~"
+    ? home
+    : trimmed.startsWith("~/")
+      ? path.join(home, trimmed.slice(2))
+      : trimmed;
+  if (path.isAbsolute(expanded)) {
+    const resolved = path.resolve(expanded);
+    if (resolved !== workspaceRoot && !resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+      throw new Error("workdir must stay inside workspace root");
+    }
+    return resolved;
+  }
+
+  const sanitized = sanitizeWorkdir(expanded);
   if (!sanitized) {
     throw new Error("workdir is required");
   }
-  return path.join(resolveWorkspaceRoot(), sanitized);
+  return path.join(workspaceRoot, sanitized);
 }
 
 function sanitizeWorkdir(input: string): string {

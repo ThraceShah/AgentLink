@@ -86,12 +86,26 @@
     <dialog id="import-dialog">
       <form method="dialog" class="dialog-card" id="import-form">
         <h3>Import Codex</h3>
+        <div class="segmented">
+          <label>
+            <input type="radio" name="import-source" value="tmux" checked>
+            <span>Tmux</span>
+          </label>
+          <label>
+            <input type="radio" name="import-source" value="history">
+            <span>History</span>
+          </label>
+        </div>
+        <label id="history-workdir-label" class="hidden">
+          Workdir
+          <input id="history-workdir-input" autocomplete="off">
+        </label>
         <div class="candidate-list" id="import-candidate-list"></div>
         <label>
           AgentLink session
           <input id="import-session-name-input" autocomplete="off" required>
         </label>
-        <div class="segmented">
+        <div class="segmented" id="tmux-import-mode">
           <label>
             <input type="radio" name="import-mode" value="fork" checked>
             <span>Fork</span>

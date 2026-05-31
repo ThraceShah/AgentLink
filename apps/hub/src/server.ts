@@ -106,6 +106,21 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       }
     }
 
+    if (req.method === "GET" && url.pathname === "/api/codex/history-candidates") {
+      try {
+        const result = await sessionManager.listCodexHistoryCandidates(url.searchParams.get("workdir") ?? "");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(result));
+        return;
+      } catch (error) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          error: error instanceof Error ? error.message : "failed_to_list_codex_history_candidates"
+        }));
+        return;
+      }
+    }
+
     if (req.method === "POST" && url.pathname === "/api/admin/prune-offline") {
       const removedAgentIds = store.pruneOfflineAgents();
       res.writeHead(200, { "content-type": "application/json" });
@@ -180,6 +195,44 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({
           error: error instanceof Error ? error.message : "failed_to_import_codex_tmux_session"
+        }));
+        return;
+      }
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/codex/import-history") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.from(chunk));
+      }
+
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          threadId?: string;
+          sessionName?: string;
+          workdir?: string;
+        };
+
+        const result = await sessionManager.importCodexHistorySession({
+          threadId: payload.threadId ?? "",
+          sessionName: payload.sessionName ?? "",
+          workdir: payload.workdir ?? "",
+          hubUrl: `ws://127.0.0.1:${activePort}/ws`
+        });
+        for (const event of store.appendEvents(result.events)) {
+          broadcastTimelineEvent(event);
+        }
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          sessionName: result.sessionName,
+          candidate: result.candidate,
+          importedEvents: result.events.length
+        }));
+        return;
+      } catch (error) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          error: error instanceof Error ? error.message : "failed_to_import_codex_history_session"
         }));
         return;
       }
