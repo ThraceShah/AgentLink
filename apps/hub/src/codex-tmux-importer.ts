@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, readlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -64,15 +64,20 @@ export class CodexTmuxImporter {
       const descendants = collectDescendants(pane.panePid, childrenByPid);
       const paneProcess = processByPid.get(pane.panePid);
       const processTree = paneProcess ? [paneProcess, ...descendants] : descendants;
-      const codexProcess = processTree.find((process) => isCodexTuiProcess(process));
+      const codexProcesses = processTree.filter((process) => isCodexTuiProcess(process));
+      const rolloutPath = await findOpenRolloutPath(codexProcesses);
+      const codexProcess = codexProcesses.find((process) => process.command === "codex")
+        ?? codexProcesses[0];
       if (!codexProcess) {
         continue;
       }
 
       const explicitThreadId = extractThreadId(codexProcess.args);
-      const thread = explicitThreadId
-        ? threads.find((item) => item.id === explicitThreadId)
-        : latestThreadForCwd(threads, pane.cwd);
+      const thread = rolloutPath
+        ? threads.find((item) => item.rolloutPath === rolloutPath)
+        : explicitThreadId
+          ? threads.find((item) => item.id === explicitThreadId)
+          : undefined;
       if (!thread) {
         continue;
       }
@@ -95,7 +100,7 @@ export class CodexTmuxImporter {
         reasoningEffort: thread.reasoningEffort,
         rolloutPath: thread.rolloutPath,
         updatedAt: thread.updatedAt,
-        confidence: explicitThreadId ? "exact" : "cwd_latest"
+        confidence: rolloutPath || explicitThreadId ? "exact" : "cwd_latest"
       });
     }
 
@@ -251,8 +256,28 @@ function extractThreadId(value: string): string | undefined {
   return value.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i)?.[0];
 }
 
-function latestThreadForCwd(threads: CodexThreadRecord[], cwd: string): CodexThreadRecord | undefined {
-  return threads.find((item) => item.cwd === cwd);
+async function findOpenRolloutPath(processes: ProcessInfo[]): Promise<string | undefined> {
+  for (const process of processes) {
+    try {
+      const fdDir = `/proc/${process.pid}/fd`;
+      const names = await readdir(fdDir);
+      for (const name of names) {
+        let target: string;
+        try {
+          target = await readlink(path.join(fdDir, name));
+        } catch {
+          continue;
+        }
+        const normalized = target.replace(/\s+\(deleted\)$/, "");
+        if (/\/\.codex\/sessions\/.+\/rollout-.+\.jsonl$/.test(normalized)) {
+          return normalized;
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
 }
 
 export function parseCodexRolloutTimeline(content: string, agentId: string, threadId: string): TimelineEvent[] {
