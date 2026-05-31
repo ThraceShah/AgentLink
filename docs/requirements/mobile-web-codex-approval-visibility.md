@@ -11,7 +11,7 @@ Codex app-server 在执行命令、文件写入或权限变更时可能进入 pe
 - 移动 Web 输入区必须在待审批期间显示审批操作入口，避免用户误以为普通输入可以继续执行。
 - 会话列表必须能从摘要看出该会话正在等待审批。
 - 审批入口必须支持本轮批准；当 provider 支持时，保留会话级批准入口。
-- 对于已经启动的旧 bridge 或未产生 `need_approval` 事件的 Codex busy 会话，移动 Web 必须显示兼容审批入口，避免用户无法从 UI 触发批准。
+- 移动 Web 不应为没有真实 pending request 的 `busy` 会话显示误导性的审批按钮。
 
 ## 非目标
 
@@ -25,5 +25,5 @@ Codex app-server 在执行命令、文件写入或权限变更时可能进入 pe
 - 审批请求支持 `allowForSession` 元数据时，移动 Web 显示 `Allow session` 按钮。
 - 点击审批按钮会向 Hub 发送 `approve` 命令；会话级按钮会传递 `session` 文本参数。
 - 待审批期间底部输入区显示审批提示和操作按钮。
-- Codex 会话处于 `busy` 且具备 `approve` 能力但没有显式审批事件时，底部输入区显示“可能等待审批”的兼容操作按钮。
+- 后续 `task_running`、`text_output`、`process_completed` 或 `need_user_input` 事件出现后，旧审批卡片不再作为待处理审批展示。
 - `node --check apps/mobile-web/app.js`、`npm test`、`npm run build` 通过。

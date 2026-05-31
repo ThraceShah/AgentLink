@@ -178,6 +178,9 @@ type PendingInputRequest = {
   allowsFreeform: boolean;
 };
 
+const defaultApprovalPolicy = "never";
+const defaultSandboxPolicy = "danger-full-access";
+
 type Callbacks = {
   onPendingRequest?: (request: CodexPendingRequest) => Promise<void> | void;
   onProcessUpdate?: (update: CodexProcessUpdate) => Promise<void> | void;
@@ -787,9 +790,9 @@ export class CodexAppServerClient {
           modelProvider: null,
           serviceTier: null,
           cwd: this.workingDir,
-          approvalPolicy: "on-request",
+          approvalPolicy: defaultApprovalPolicy,
           approvalsReviewer: null,
-          sandbox: "workspace-write",
+          sandbox: defaultSandboxPolicy,
           config: null,
           baseInstructions: null,
           developerInstructions: null,
@@ -817,9 +820,9 @@ export class CodexAppServerClient {
           modelProvider: null,
           serviceTier: null,
           cwd: this.workingDir,
-          approvalPolicy: "on-request",
+          approvalPolicy: defaultApprovalPolicy,
           approvalsReviewer: null,
-          sandbox: "workspace-write",
+          sandbox: defaultSandboxPolicy,
           config: null,
           baseInstructions: null,
           developerInstructions: null,
@@ -845,9 +848,9 @@ export class CodexAppServerClient {
       modelProvider: null,
       serviceTier: null,
       cwd: this.workingDir,
-      approvalPolicy: "on-request",
+      approvalPolicy: defaultApprovalPolicy,
       approvalsReviewer: null,
-      sandbox: "workspace-write",
+      sandbox: defaultSandboxPolicy,
       config: null,
       serviceName: null,
       baseInstructions: null,
@@ -868,7 +871,7 @@ export class CodexAppServerClient {
     this.threadId = stringValue(thread.id);
     this.currentModel = stringValue(payload.model) ?? this.currentModel ?? this.preferredModel;
     this.approvalPolicy = stringValue(payload.approvalPolicy) ?? this.approvalPolicy;
-    this.sandboxPolicy = stringValue(payload.sandbox) ?? stringValue(payload.sandboxPolicy) ?? this.sandboxPolicy ?? "workspace-write";
+    this.sandboxPolicy = stringValue(payload.sandbox) ?? stringValue(payload.sandboxPolicy) ?? this.sandboxPolicy ?? defaultSandboxPolicy;
     this.applyRuntimeSettings(payload);
     void this.persistState();
   }

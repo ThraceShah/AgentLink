@@ -547,8 +547,7 @@ async function startCodexExecTask(task: ActiveExecTask): Promise<void> {
     "--skip-git-repo-check",
     "-C",
     ".",
-    "--sandbox",
-    "workspace-write"
+    "--dangerously-bypass-approvals-and-sandbox"
   ];
   if (task.model) {
     args.push("-m", task.model);
@@ -2249,7 +2248,7 @@ function providerExecCommand(currentProfile: BridgeProfile, task: ActiveExecTask
         "codex exec",
         "--skip-git-repo-check",
         "-C .",
-        "--sandbox workspace-write",
+        "--dangerously-bypass-approvals-and-sandbox",
         task.model ? `-m ${shellQuote(task.model)}` : "",
         "--json -"
       ].filter(Boolean).join(" ") + ` < ${shellQuote(task.commandPromptPath)} > ${shellQuote(task.commandOutputPath)}`,

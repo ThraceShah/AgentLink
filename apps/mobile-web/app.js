@@ -453,7 +453,7 @@ function renderRuntimeStrip(agent, pendingApproval = null) {
     const bar = document.createElement("div");
     bar.className = "approval-strip";
     const label = document.createElement("span");
-    label.textContent = pendingApproval.metadata?.fallbackApproval === true ? "Maybe awaiting approval" : "Approval needed";
+    label.textContent = "Approval needed";
     bar.append(label);
     bar.append(renderApprovalActions(pendingApproval, agent.agentId));
     els.runtimeStrip.append(bar);
@@ -769,34 +769,7 @@ function latestPendingApproval(agentId) {
 }
 
 function approvalPromptFor(agent) {
-  const explicit = latestPendingApproval(agent.agentId);
-  if (explicit) {
-    return explicit;
-  }
-  if (
-    agent.kind !== "codex"
-    || agent.status !== "busy"
-    || !agent.capabilities?.includes("approve")
-  ) {
-    return null;
-  }
-  const fallbackId = `approval_fallback_${agent.agentId}_${agent.lastSeenAt || ""}`;
-  if (state.dismissedApprovalEventIds.has(fallbackId)) {
-    return null;
-  }
-  return {
-    id: fallbackId,
-    agentId: agent.agentId,
-    eventType: "need_approval",
-    timestamp: agent.lastSeenAt,
-    title: "Possible approval request",
-    body: "Codex is busy without a visible approval card. If it is waiting for permission, approve it here.",
-    status: "waiting_input",
-    metadata: {
-      fallbackApproval: true,
-      allowForSession: true
-    }
-  };
+  return latestPendingApproval(agent.agentId);
 }
 
 function selectAgent(agentId) {
