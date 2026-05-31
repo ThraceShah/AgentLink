@@ -500,17 +500,10 @@ dialog textarea {
   box-shadow: inset 0 0 0 1px rgba(79, 180, 119, 0.35);
 }
 
-.model-option strong,
-.model-option small {
+.model-option strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.model-option small {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 12px;
 }
 
 #tui-body {

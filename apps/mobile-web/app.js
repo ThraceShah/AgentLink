@@ -897,8 +897,9 @@ async function renderModelCommand(node) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "model-option";
+      button.dataset.modelId = model.id;
       button.dataset.selected = model.id === state.selectedModelId ? "true" : "false";
-      button.innerHTML = `<strong>${escapeHtml(model.label || model.id)}</strong><small>${escapeHtml(model.id)}</small>`;
+      button.innerHTML = `<strong>${escapeHtml(model.label || model.id)}</strong>`;
       button.addEventListener("click", () => {
         state.selectedModelId = model.id;
         renderModelCommandSelection(list);
@@ -925,7 +926,7 @@ async function renderModelCommand(node) {
 
 function renderModelCommandSelection(list) {
   for (const button of list.querySelectorAll(".model-option")) {
-    const id = button.querySelector("small")?.textContent || "";
+    const id = button.dataset.modelId || "";
     button.dataset.selected = id === state.selectedModelId ? "true" : "false";
   }
   renderReasoningOptions();
