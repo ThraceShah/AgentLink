@@ -471,22 +471,17 @@ function renderCodexHistoryCandidates() {
   for (const candidate of state.codexHistoryCandidates) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "candidate-item";
+    button.className = "candidate-item history-candidate";
     button.dataset.selected = candidate.candidateId === state.selectedCodexHistoryCandidateId ? "true" : "false";
     button.dataset.importable = candidate.importable ? "true" : "false";
     const title = document.createElement("strong");
-    title.textContent = candidate.title || candidate.preview || candidate.id;
+    title.textContent = truncateText(candidate.title || candidate.preview || candidate.id, 34);
     const meta = document.createElement("small");
-    meta.textContent = [
-      candidate.updatedAt ? new Date(candidate.updatedAt).toLocaleString() : "",
-      candidate.importable ? candidate.model || "codex" : "not importable"
-    ].filter(Boolean).join(" · ");
+    meta.textContent = formatHistoryMeta(candidate);
     button.append(title, meta);
     button.addEventListener("click", () => {
       state.selectedCodexHistoryCandidateId = candidate.candidateId;
-      if (!els.importSessionNameInput.value.trim()) {
-        els.importSessionNameInput.value = `${historySessionNameBase(candidate)}-agentlink`;
-      }
+      els.importSessionNameInput.value = `${historySessionNameBase(candidate)}-agentlink`;
       renderCodexHistoryCandidates();
     });
     els.importCandidateList.append(button);
@@ -502,7 +497,7 @@ function renderCodexHistoryCandidates() {
   }
   els.importNote.textContent = selected
     ? [
-      selected.preview || selected.title || selected.id,
+      truncateText(selected.preview || selected.title || selected.id, 160),
       selected.cwd,
       selected.importable ? "Matched Codex history thread for this workdir." : selected.reason
     ].filter(Boolean).join("\n")
@@ -601,7 +596,43 @@ function isHistoryImportSource() {
 }
 
 function historySessionNameBase(candidate) {
-  return (candidate.title || candidate.preview || "codex-history").toLowerCase().slice(0, 32);
+  const readable = (candidate.title || candidate.preview || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32)
+    .replace(/-+$/g, "");
+  return readable || `codex-${String(candidate.id || "history").slice(0, 8)}`;
+}
+
+function formatHistoryMeta(candidate) {
+  return [
+    candidate.updatedAt ? formatShortDate(candidate.updatedAt) : "",
+    candidate.model || "codex",
+    candidate.reasoningEffort || "",
+    candidate.importable ? "" : "not importable"
+  ].filter(Boolean).join(" · ");
+}
+
+function formatShortDate(value) {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return "";
+  }
+}
+
+function truncateText(value, maxLength) {
+  const normalized = String(value || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
 function eventsFor(agentId) {

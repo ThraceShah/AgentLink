@@ -442,7 +442,7 @@ dialog select {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 190px;
+  max-height: min(280px, 34dvh);
   overflow-y: auto;
 }
 
@@ -451,13 +451,28 @@ dialog select {
   flex-direction: column;
   gap: 4px;
   width: 100%;
-  min-height: 58px;
+  min-height: 64px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-2);
   color: var(--text);
   text-align: left;
+}
+
+.candidate-item.history-candidate {
+  min-height: 56px;
+  justify-content: center;
+}
+
+.candidate-item strong {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .candidate-item[data-selected="true"] {
@@ -473,8 +488,17 @@ dialog select {
 .candidate-item small {
   color: var(--muted);
   overflow: hidden;
+  font-size: 12px;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.candidate-item .candidate-preview {
+  display: block;
+  max-height: 2.5em;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .segmented {

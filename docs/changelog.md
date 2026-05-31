@@ -106,3 +106,4 @@
 - 统一 Android 交付 APK 命名：标准调试包输出路径已从 `temp_docs/apk/personal-agent-im-debug.apk` 改为 `temp_docs/apk/agentlink-debug.apk`，并同步更新自测 skill 与正式文档引用。
 - 修复 Codex tmux 导入候选识别：Hub 现在会返回检测到但暂不可导入的 Codex TUI pane，并在缺少唯一持久化 thread 匹配时给出原因，避免同工作目录下误绑定到错误历史会话。
 - 新增 Codex 历史会话导入：Web UI 可按用户指定工作目录查询本地 Codex 历史 thread，并新建 AgentLink/tmux 会话 resume 原 thread，同时导入可见对话 timeline。
+- 优化移动 Web 的 Codex 历史导入列表：候选项改为紧凑两行展示，长标题自动省略，选中长标题时不再撑破弹窗，并同步生成匹配当前候选的默认会话名。
