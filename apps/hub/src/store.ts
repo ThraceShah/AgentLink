@@ -83,6 +83,10 @@ export class HubStore {
     return event;
   }
 
+  appendEvents(events: TimelineEvent[]): TimelineEvent[] {
+    return events.map((event) => this.appendEvent(event));
+  }
+
   getBootstrap(): { agents: AgentSnapshot[]; events: TimelineEvent[] } {
     const agents = [...this.agents.values()].sort((a, b) =>
       b.lastSeenAt.localeCompare(a.lastSeenAt)

@@ -4,6 +4,7 @@
 
 ## Unreleased
 
+- 新增 Codex tmux TUI 会话导入能力：Hub 可扫描本机 tmux 中运行的 Codex TUI，基于 Codex 本地 rollout 记录恢复用户/assistant 对话到 AgentLink timeline，并支持以 fork 或 takeover 模式启动 app-server bridge 继续工作。
 - 修正 Codex slash command 语义边界：`/model` 现在按官方语义提供模型与 reasoning effort 两级选择；AgentLink 自定义命令改为 `/iris-status`、`/iris-new-thread`、`/iris-clear-history`、`/iris-help`，避免占用官方命令名。
 - 优化 Codex app-server 错误展示：活跃 turn 中的 app-server `error` 通知现在作为过程信息记录，不再重复落多条泛化 `Codex app-server reported an error.`；真实失败原因仍由 `turn/completed` 的失败信息落到最终 `task_failed`。
 - 完成 Codex 移动端消息策略升级：Codex app-server 会话现在会把在线过程流、assistant 草稿、完成摘要和最终回复拆成独立事件，Hub 支持 transient 事件只广播不持久化，移动 Web 会将过程消息折叠展示并保留最终回复通知语义。

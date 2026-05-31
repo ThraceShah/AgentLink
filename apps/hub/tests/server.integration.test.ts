@@ -113,6 +113,24 @@ describe("hub integration", () => {
     expect(payload.hostUsername).toMatch(/\S+/);
   });
 
+  it("returns Codex tmux import candidates", async () => {
+    const hub = createHubServer({
+      host: "127.0.0.1",
+      port: 0,
+      dataDir: "temp_docs/test-hub-data"
+    });
+    started.push(hub);
+    const address = await hub.start();
+
+    const response = await fetch(`http://${address.host}:${address.port}/api/codex/tmux-candidates`);
+    expect(response.ok).toBe(true);
+
+    const payload = await response.json() as {
+      candidates: unknown[];
+    };
+    expect(Array.isArray(payload.candidates)).toBe(true);
+  });
+
   it("clears session history when deleting a session", async () => {
     const hub = createHubServer({
       host: "127.0.0.1",

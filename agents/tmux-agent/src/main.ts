@@ -53,6 +53,10 @@ const sessionName = process.env.TMUX_SESSION ?? "iris-agent";
 const managedCommand = process.argv.slice(2).join(" ") || process.env.TMUX_COMMAND || defaultManagedCommand(profile, codexMode);
 const pollIntervalMs = Number(process.env.TMUX_POLL_MS ?? 1000);
 const approveText = process.env.TMUX_APPROVE_TEXT ?? "y";
+const codexResumeThreadId = process.env.IRIS_CODEX_RESUME_THREAD_ID?.trim();
+const codexForkFromThreadId = process.env.IRIS_CODEX_FORK_FROM_THREAD_ID?.trim();
+const codexImportedModel = process.env.IRIS_CODEX_IMPORTED_MODEL?.trim();
+const codexImportedReasoningEffort = parseReasoningEffort(process.env.IRIS_CODEX_IMPORTED_REASONING_EFFORT?.trim() ?? "");
 
 const opencodeNativeCommands: SlashCommandNode[] = [
   { id: "agents", label: "agents", description: "Switch agent", commandType: "send_text" },
@@ -728,11 +732,12 @@ async function ensureCodexAppClient(): Promise<CodexAppServerClient> {
   if (!codexAppClient) {
     const targetPane = await resolvePane();
     const panePath = await tmuxPanePath(targetPane);
+    const preferredModel = codexImportedModel || await resolveProviderModel(profile);
     codexAppClient = new CodexAppServerClient({
       sessionName,
       workingDir: panePath,
       bridgeDir: codexBridgeDir(),
-      preferredModel: await resolveProviderModel(profile),
+      preferredModel,
       callbacks: {
         onPendingRequest: async (request) => {
           await emitCodexProcessDelta(request.title, request.body, {
@@ -791,6 +796,16 @@ async function ensureCodexAppClient(): Promise<CodexAppServerClient> {
         }
       }
     });
+    if (codexResumeThreadId || codexForkFromThreadId) {
+      await codexAppClient.seedThreadState({
+        threadId: codexResumeThreadId,
+        forkFromThreadId: codexForkFromThreadId,
+        preferredModel,
+        currentModel: preferredModel,
+        reasoningEffort: codexImportedReasoningEffort,
+        approvalPolicy: "on-request"
+      });
+    }
   }
 
   await codexAppClient.start();

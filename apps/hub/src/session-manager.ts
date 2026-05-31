@@ -6,6 +6,9 @@ import { homedir, userInfo } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import type { TimelineEvent } from "../../../packages/protocol/src/index.js";
+import { CodexTmuxImporter, type CodexTmuxCandidate } from "./codex-tmux-importer.js";
+
 const execFileAsync = promisify(execFile);
 
 export type AgentProfile = {
@@ -22,8 +25,16 @@ export type CreateSessionInput = {
   hubUrl: string;
 };
 
+export type ImportCodexTmuxInput = {
+  candidateId: string;
+  mode: "fork" | "takeover";
+  sessionName: string;
+  hubUrl: string;
+};
+
 export class SessionManager {
   private readonly runningBridges = new Map<string, number>();
+  private readonly codexImporter = new CodexTmuxImporter();
   private openCodeProbeCache?: {
     checkedAt: number;
     available: boolean;
@@ -93,6 +104,55 @@ export class SessionManager {
     return { sessionName, profile };
   }
 
+  async listCodexTmuxCandidates(): Promise<CodexTmuxCandidate[]> {
+    return this.codexImporter.listCandidates();
+  }
+
+  async importCodexTmuxSession(input: ImportCodexTmuxInput): Promise<{
+    sessionName: string;
+    candidate: CodexTmuxCandidate;
+    events: TimelineEvent[];
+  }> {
+    const sessionName = sanitizeSessionName(input.sessionName);
+    if (!sessionName) {
+      throw new Error("session name is required");
+    }
+    const candidate = await this.codexImporter.findCandidate(input.candidateId);
+    if (!candidate) {
+      throw new Error("Codex tmux candidate was not found");
+    }
+    if (input.mode !== "fork" && input.mode !== "takeover") {
+      throw new Error("import mode must be fork or takeover");
+    }
+    if (input.mode === "fork" && sessionName === candidate.tmuxSession) {
+      throw new Error("fork import requires a new AgentLink session name");
+    }
+
+    const profile = (await this.listProfiles()).find((item) => item.id === "codex");
+    if (!profile) {
+      throw new Error("codex profile is unavailable");
+    }
+
+    if (input.mode === "takeover" && await this.tmuxSessionExists(candidate.tmuxSession)) {
+      await execFileAsync("tmux", ["kill-session", "-t", candidate.tmuxSession], { encoding: "utf8" });
+    }
+
+    await mkdir(candidate.cwd, { recursive: true });
+    await this.ensureTmuxSession(sessionName, profile, candidate.cwd);
+    await this.startBridge(sessionName, profile, input.hubUrl, candidate.cwd, {
+      resumeThreadId: input.mode === "takeover" ? candidate.threadId : undefined,
+      forkFromThreadId: input.mode === "fork" ? candidate.threadId : undefined,
+      model: candidate.model,
+      reasoningEffort: candidate.reasoningEffort
+    });
+    const events = await this.codexImporter.readTimeline({
+      id: candidate.threadId,
+      rolloutPath: candidate.rolloutPath
+    }, sessionName);
+
+    return { sessionName, candidate, events };
+  }
+
   async deleteSession(sessionNameInput: string): Promise<{ sessionName: string }> {
     const sessionName = sanitizeSessionName(sessionNameInput);
     if (!sessionName) {
@@ -150,7 +210,13 @@ export class SessionManager {
     sessionName: string,
     profile: AgentProfile,
     hubUrl: string,
-    workingDirectory: string
+    workingDirectory: string,
+    codexImport?: {
+      resumeThreadId?: string;
+      forkFromThreadId?: string;
+      model?: string;
+      reasoningEffort?: string;
+    }
   ): Promise<void> {
     if (this.runningBridges.has(sessionName)) {
       return;
@@ -167,7 +233,11 @@ export class SessionManager {
         AGENT_ID: sessionName,
         AGENT_DISPLAY_NAME: sessionName,
         AGENT_KIND: profile.id,
-        IRIS_USER_HOME: process.env.HOME ?? homedir()
+        IRIS_USER_HOME: process.env.HOME ?? homedir(),
+        IRIS_CODEX_RESUME_THREAD_ID: codexImport?.resumeThreadId ?? "",
+        IRIS_CODEX_FORK_FROM_THREAD_ID: codexImport?.forkFromThreadId ?? "",
+        IRIS_CODEX_IMPORTED_MODEL: codexImport?.model ?? "",
+        IRIS_CODEX_IMPORTED_REASONING_EFFORT: codexImport?.reasoningEffort ?? ""
       },
       stdio: "ignore",
       detached: true

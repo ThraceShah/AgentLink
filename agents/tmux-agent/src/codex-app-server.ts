@@ -36,6 +36,7 @@ type PendingRpc = {
 
 type StoredCodexState = {
   threadId?: string;
+  forkFromThreadId?: string;
   preferredModel?: string;
   currentModel?: string;
   reasoningEffort?: ReasoningEffort;
@@ -290,6 +291,31 @@ export class CodexAppServerClient {
     await this.ensureThread();
   }
 
+  async seedThreadState(input: {
+    threadId?: string;
+    forkFromThreadId?: string;
+    preferredModel?: string;
+    currentModel?: string;
+    reasoningEffort?: ReasoningEffort;
+    approvalPolicy?: string;
+  }): Promise<void> {
+    const payload: StoredCodexState = {
+      threadId: input.threadId,
+      forkFromThreadId: input.forkFromThreadId,
+      preferredModel: input.preferredModel,
+      currentModel: input.currentModel,
+      reasoningEffort: input.reasoningEffort,
+      cwd: this.workingDir,
+      approvalPolicy: input.approvalPolicy
+    };
+    await mkdir(this.bridgeDir, { recursive: true });
+    await writeFile(this.statePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    this.preferredModel = input.preferredModel ?? this.preferredModel;
+    this.currentModel = input.currentModel ?? input.preferredModel ?? this.currentModel;
+    this.reasoningEffort = input.reasoningEffort ?? this.reasoningEffort;
+    this.approvalPolicy = input.approvalPolicy ?? this.approvalPolicy;
+  }
+
   async startTurn(prompt: string): Promise<void> {
     await this.start();
     if (!this.threadId) {
@@ -534,6 +560,36 @@ export class CodexAppServerClient {
     }
 
     const stored = await this.loadState();
+    if (stored.forkFromThreadId) {
+      try {
+        const forked = await this.request("thread/fork", {
+          threadId: stored.forkFromThreadId,
+          model: stored.preferredModel ?? null,
+          modelProvider: null,
+          serviceTier: null,
+          cwd: this.workingDir,
+          approvalPolicy: "on-request",
+          approvalsReviewer: null,
+          sandbox: "workspace-write",
+          config: null,
+          baseInstructions: null,
+          developerInstructions: null,
+          threadSource: "user",
+          ephemeral: false
+        }) as Record<string, unknown>;
+        this.applyThreadEnvelope(forked);
+        await this.persistState();
+        return;
+      } catch (error) {
+        await this.reportError(
+          error instanceof Error
+            ? `Codex fork failed for ${this.sessionName}: ${error.message}`
+            : `Codex fork failed for ${this.sessionName}.`
+        );
+        await this.resetThreadState();
+      }
+    }
+
     if (stored.threadId) {
       try {
         const resumed = await this.request("thread/resume", {

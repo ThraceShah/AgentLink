@@ -17,6 +17,7 @@
           </div>
           <div class="top-actions">
             <button class="icon-button" id="notify-button" type="button" title="Enable notifications">N</button>
+            <button class="icon-button" id="import-codex-button" type="button" title="Import Codex">I</button>
             <button class="icon-button" id="new-session-button" type="button" title="New session">+</button>
           </div>
         </header>
@@ -78,6 +79,36 @@
         <div class="dialog-actions">
           <button type="button" class="text-button" id="cancel-session-button">Cancel</button>
           <button type="submit">Create</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="import-dialog">
+      <form method="dialog" class="dialog-card" id="import-form">
+        <h3>Import Codex</h3>
+        <label>
+          tmux session
+          <select id="import-candidate-select"></select>
+        </label>
+        <label>
+          AgentLink session
+          <input id="import-session-name-input" autocomplete="off" required>
+        </label>
+        <div class="segmented">
+          <label>
+            <input type="radio" name="import-mode" value="fork" checked>
+            <span>Fork</span>
+          </label>
+          <label>
+            <input type="radio" name="import-mode" value="takeover">
+            <span>Takeover</span>
+          </label>
+        </div>
+        <p class="dialog-note" id="import-note">No Codex tmux sessions found.</p>
+        <div class="dialog-actions">
+          <button type="button" class="text-button" id="refresh-import-button">Refresh</button>
+          <button type="button" class="text-button" id="cancel-import-button">Cancel</button>
+          <button type="submit">Import</button>
         </div>
       </form>
     </dialog>

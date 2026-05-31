@@ -91,6 +91,21 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
       return;
     }
 
+    if (req.method === "GET" && url.pathname === "/api/codex/tmux-candidates") {
+      try {
+        const candidates = await sessionManager.listCodexTmuxCandidates();
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ candidates }));
+        return;
+      } catch (error) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          error: error instanceof Error ? error.message : "failed_to_list_codex_tmux_candidates"
+        }));
+        return;
+      }
+    }
+
     if (req.method === "POST" && url.pathname === "/api/admin/prune-offline") {
       const removedAgentIds = store.pruneOfflineAgents();
       res.writeHead(200, { "content-type": "application/json" });
@@ -127,6 +142,44 @@ export function createHubServer(options: CreateHubServerOptions = {}) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(JSON.stringify({
           error: error instanceof Error ? error.message : "failed_to_create_session"
+        }));
+        return;
+      }
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/codex/import-tmux") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.from(chunk));
+      }
+
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          candidateId?: string;
+          mode?: "fork" | "takeover";
+          sessionName?: string;
+        };
+
+        const result = await sessionManager.importCodexTmuxSession({
+          candidateId: payload.candidateId ?? "",
+          mode: payload.mode ?? "fork",
+          sessionName: payload.sessionName ?? "",
+          hubUrl: `ws://127.0.0.1:${activePort}/ws`
+        });
+        for (const event of store.appendEvents(result.events)) {
+          broadcastTimelineEvent(event);
+        }
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          sessionName: result.sessionName,
+          candidate: result.candidate,
+          importedEvents: result.events.length
+        }));
+        return;
+      } catch (error) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          error: error instanceof Error ? error.message : "failed_to_import_codex_tmux_session"
         }));
         return;
       }

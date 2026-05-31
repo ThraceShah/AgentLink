@@ -7,6 +7,7 @@ const state = {
   socket: null,
   socketState: "syncing",
   activeTuiMenu: null,
+  codexImportCandidates: [],
   notifiedEventIds: new Set(),
   pollTimer: null,
   reconnectTimer: null,
@@ -21,6 +22,7 @@ const els = {
   connectionStatus: document.querySelector("#connection-status"),
   refreshButton: document.querySelector("#refresh-button"),
   notifyButton: document.querySelector("#notify-button"),
+  importCodexButton: document.querySelector("#import-codex-button"),
   newSessionButton: document.querySelector("#new-session-button"),
   agentSearch: document.querySelector("#agent-search"),
   agentList: document.querySelector("#agent-list"),
@@ -39,6 +41,13 @@ const els = {
   sessionNameInput: document.querySelector("#session-name-input"),
   workdirInput: document.querySelector("#workdir-input"),
   cancelSessionButton: document.querySelector("#cancel-session-button"),
+  importDialog: document.querySelector("#import-dialog"),
+  importForm: document.querySelector("#import-form"),
+  importCandidateSelect: document.querySelector("#import-candidate-select"),
+  importSessionNameInput: document.querySelector("#import-session-name-input"),
+  importNote: document.querySelector("#import-note"),
+  refreshImportButton: document.querySelector("#refresh-import-button"),
+  cancelImportButton: document.querySelector("#cancel-import-button"),
   tuiDialog: document.querySelector("#tui-dialog"),
   tuiTitle: document.querySelector("#tui-title"),
   tuiBody: document.querySelector("#tui-body"),
@@ -407,6 +416,48 @@ function openSessionDialog() {
   els.sessionDialog.showModal();
 }
 
+async function openImportDialog() {
+  await refreshCodexImportCandidates();
+  els.importDialog.showModal();
+}
+
+async function refreshCodexImportCandidates() {
+  try {
+    const payload = await api("/api/codex/tmux-candidates");
+    state.codexImportCandidates = payload.candidates ?? [];
+    renderCodexImportCandidates();
+  } catch (error) {
+    state.codexImportCandidates = [];
+    renderCodexImportCandidates();
+    toast(error.message || "Failed to scan Codex sessions");
+  }
+}
+
+function renderCodexImportCandidates() {
+  els.importCandidateSelect.replaceChildren();
+  for (const candidate of state.codexImportCandidates) {
+    const option = document.createElement("option");
+    option.value = candidate.candidateId;
+    option.textContent = `${candidate.tmuxSession} · ${candidate.title || candidate.threadId}`;
+    els.importCandidateSelect.append(option);
+  }
+  const selected = selectedCodexImportCandidate();
+  if (selected && !els.importSessionNameInput.value.trim()) {
+    els.importSessionNameInput.value = `${selected.tmuxSession}-agentlink`;
+  }
+  els.importNote.textContent = selected
+    ? [
+      selected.preview || selected.title || selected.threadId,
+      selected.cwd,
+      selected.confidence === "exact" ? "Matched by thread id." : "Matched by latest Codex thread in cwd."
+    ].filter(Boolean).join("\n")
+    : "No Codex tmux sessions found.";
+}
+
+function selectedCodexImportCandidate() {
+  return state.codexImportCandidates.find((item) => item.candidateId === els.importCandidateSelect.value) ?? null;
+}
+
 function eventsFor(agentId) {
   return state.events.filter((event) => event.agentId === agentId);
 }
@@ -664,6 +715,31 @@ async function createSession(event) {
   }
 }
 
+async function importCodexSession(event) {
+  event.preventDefault();
+  const candidate = selectedCodexImportCandidate();
+  if (!candidate) {
+    toast("No Codex tmux session selected.");
+    return;
+  }
+  const mode = document.querySelector("input[name='import-mode']:checked")?.value || "fork";
+  try {
+    const payload = await api("/api/codex/import-tmux", {
+      method: "POST",
+      body: JSON.stringify({
+        candidateId: candidate.candidateId,
+        mode,
+        sessionName: els.importSessionNameInput.value.trim()
+      })
+    });
+    els.importDialog.close();
+    await refreshAll();
+    selectAgent(payload.sessionName);
+  } catch (error) {
+    toast(error.message || "Failed to import Codex session");
+  }
+}
+
 async function deleteSelectedSession() {
   const agent = selectedAgent();
   if (!agent || !confirm(`Delete ${agent.displayName}?`)) {
@@ -765,9 +841,14 @@ function toast(message) {
 
 els.refreshButton.addEventListener("click", () => refreshAll());
 els.notifyButton.addEventListener("click", requestNotifications);
+els.importCodexButton.addEventListener("click", () => void openImportDialog());
 els.newSessionButton.addEventListener("click", openSessionDialog);
 els.cancelSessionButton.addEventListener("click", () => els.sessionDialog.close());
 els.sessionForm.addEventListener("submit", createSession);
+els.refreshImportButton.addEventListener("click", () => void refreshCodexImportCandidates());
+els.cancelImportButton.addEventListener("click", () => els.importDialog.close());
+els.importCandidateSelect.addEventListener("change", renderCodexImportCandidates);
+els.importForm.addEventListener("submit", importCodexSession);
 els.agentSearch.addEventListener("input", renderAgents);
 els.backButton.addEventListener("click", showList);
 els.deleteSessionButton.addEventListener("click", deleteSelectedSession);
