@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   createId,
   deriveStatusFromEvent,
-  parseIncomingMessage
+  parseIncomingMessage,
+  slashCommandNodeSchema
 } from "../src/index.js";
 
 describe("protocol helpers", () => {
@@ -30,5 +31,34 @@ describe("protocol helpers", () => {
 
   it("creates ids with prefixes", () => {
     expect(createId("evt")).toMatch(/^evt_/);
+  });
+
+  it("parses custom commands with structured args and ui metadata", () => {
+    const parsed = parseIncomingMessage(JSON.stringify({
+      type: "command",
+      agentId: "codex-1",
+      command: {
+        id: "cmd-1",
+        type: "custom",
+        text: "/goal Ship structured commands",
+        args: {
+          codexCommand: "goal.set",
+          objective: "Ship structured commands"
+        }
+      }
+    }));
+
+    expect(parsed.type).toBe("command");
+    expect(parsed.command.type).toBe("custom");
+    expect(parsed.command.args?.codexCommand).toBe("goal.set");
+
+    const slashNode = slashCommandNodeSchema.parse({
+      id: "goal",
+      label: "goal",
+      commandType: "custom",
+      args: { codexCommand: "goal" },
+      ui: { kind: "codexGoal" }
+    });
+    expect(slashNode.ui?.kind).toBe("codexGoal");
   });
 });

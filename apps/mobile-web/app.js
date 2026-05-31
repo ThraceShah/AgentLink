@@ -795,7 +795,7 @@ async function executeSlashCommand(node, userInput) {
     return;
   }
   if (node.commandType === "custom") {
-    await sendCommand(agent.agentId, "custom", userInput || `/${node.id}`, { ...(node.args ?? {}) });
+    await sendCommand(agent.agentId, "custom", userInput ? `/${node.id} ${userInput}` : `/${node.id}`, customSlashArgs(node, userInput));
     return;
   }
   if (node.commandType === "send_text") {
@@ -803,6 +803,40 @@ async function executeSlashCommand(node, userInput) {
   } else {
     await sendCommand(agent.agentId, node.commandType, userInput || undefined);
   }
+}
+
+function customSlashArgs(node, userInput) {
+  const args = { ...(node.args ?? {}) };
+  const value = typeof userInput === "string" ? userInput.trim() : "";
+  if (!value) {
+    return args;
+  }
+  const command = args.codexCommand;
+  if (command === "goal") {
+    if (value === "status") {
+      args.codexCommand = "goal.get";
+    } else if (value === "clear") {
+      args.codexCommand = "goal.clear";
+    } else {
+      args.codexCommand = "goal.set";
+      args.objective = value;
+    }
+  } else if (command === "thread.rename") {
+    args.name = value;
+  } else if (command === "memory") {
+    if (value === "reset") {
+      args.codexCommand = "memory.reset";
+    } else if (value === "on" || value === "enable") {
+      args.codexCommand = "memory.mode";
+      args.enabled = true;
+    } else if (value === "off" || value === "disable") {
+      args.codexCommand = "memory.mode";
+      args.enabled = false;
+    }
+  } else if (command === "mcp.status" && value === "status") {
+    args.codexCommand = "mcp.status";
+  }
+  return args;
 }
 
 async function openCommandDialog(node) {
