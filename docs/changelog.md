@@ -113,3 +113,4 @@
 - 调整移动 Web 聊天输入区：移除输入框提示文字，并在输入框下方显示当前模型、思考等级和剩余上下文窗口百分比。
 - 新增移动 Web 的 Codex app-server 结构化命令入口：`/model`、`/goal`、`/rename`、`/compact`、`/memory`、`/mcp` 和 `/status` 现在可通过移动端友好的 slash 弹窗或结构化命令通道执行。
 - 修正 Codex `/status` 与 AgentLink 自定义状态的语义边界：`/status` 现在展示 Codex 官方状态口径，`/iris-status` 和 `/iris_status` 保留为 AgentLink bridge 状态。
+- 补齐移动 Web `/status` 的 Codex 状态信息：增加模型 provider、权限、AGENTS.md、账号、协作模式、session、limits、sandbox 等字段，使其更接近 Codex TUI 的 `/status` 面板。

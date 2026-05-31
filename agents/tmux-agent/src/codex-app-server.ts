@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import path from "node:path";
 
@@ -43,6 +43,11 @@ type StoredCodexState = {
   cwd?: string;
   approvalPolicy?: string;
   sandboxPolicy?: string;
+  modelProvider?: string;
+  modelProviderBaseUrl?: string;
+  permissions?: string;
+  collaborationMode?: string;
+  agentsFile?: string;
 };
 
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -128,11 +133,17 @@ export type CodexMcpServerStatus = {
 };
 
 export type CodexOfficialStatus = {
+  threadId?: string;
   model?: string;
   reasoningEffort?: ReasoningEffort;
   cwd: string;
   approvalPolicy?: string;
   sandboxPolicy?: string;
+  modelProvider?: string;
+  modelProviderBaseUrl?: string;
+  permissions?: string;
+  collaborationMode?: string;
+  agentsFile?: string;
   account?: Record<string, unknown>;
   rateLimits?: Record<string, unknown>;
   config?: Record<string, unknown>;
@@ -197,6 +208,10 @@ export class CodexAppServerClient {
   private reasoningEffort?: ReasoningEffort;
   private approvalPolicy?: string;
   private sandboxPolicy?: string;
+  private modelProvider?: string;
+  private modelProviderBaseUrl?: string;
+  private permissions?: string;
+  private collaborationMode?: string;
   private contextUsedTokens?: number;
   private contextWindowTokens?: number;
   private goal?: CodexGoal | null;
@@ -443,15 +458,30 @@ export class CodexAppServerClient {
       this.optionalRequest("account/rateLimits/read", {}),
       this.optionalRequest("config/read", {})
     ]);
+    const configBody = objectValue(objectValue(config)?.config) ?? objectValue(config);
+    const providerName = this.modelProvider
+      ?? stringValue(configBody?.model_provider)
+      ?? stringValue(configBody?.modelProvider);
+    const providers = objectValue(configBody?.model_providers) ?? objectValue(configBody?.modelProviders);
+    const providerConfig = providerName ? objectValue(providers?.[providerName]) : undefined;
+    const configSandbox = stringValue(configBody?.sandbox_mode) ?? stringValue(configBody?.sandboxMode);
     return {
-      model: this.currentModel ?? this.preferredModel,
-      reasoningEffort: this.reasoningEffort,
+      threadId: this.threadId,
+      model: this.currentModel ?? this.preferredModel ?? stringValue(configBody?.model),
+      reasoningEffort: this.reasoningEffort ?? reasoningEffortValue(configBody?.model_reasoning_effort),
       cwd: this.workingDir,
-      approvalPolicy: this.approvalPolicy,
-      sandboxPolicy: this.sandboxPolicy,
+      approvalPolicy: stringValue(configBody?.approval_policy) ?? this.approvalPolicy,
+      sandboxPolicy: configSandbox ?? this.sandboxPolicy,
+      modelProvider: providerName,
+      modelProviderBaseUrl: this.modelProviderBaseUrl
+        ?? stringValue(providerConfig?.base_url)
+        ?? stringValue(providerConfig?.baseUrl),
+      permissions: this.permissions,
+      collaborationMode: this.collaborationMode ?? "Default",
+      agentsFile: await this.findAgentsFile(),
       account: objectValue(account),
       rateLimits: objectValue(rateLimits),
-      config: objectValue(config),
+      config: configBody,
       contextUsedTokens: this.contextUsedTokens,
       contextWindowTokens: this.contextWindowTokens
     };
@@ -825,6 +855,7 @@ export class CodexAppServerClient {
     this.currentModel = stringValue(payload.model) ?? this.currentModel ?? this.preferredModel;
     this.approvalPolicy = stringValue(payload.approvalPolicy) ?? this.approvalPolicy;
     this.sandboxPolicy = stringValue(payload.sandbox) ?? stringValue(payload.sandboxPolicy) ?? this.sandboxPolicy ?? "workspace-write";
+    this.applyRuntimeSettings(payload);
     void this.persistState();
   }
 
@@ -861,6 +892,52 @@ export class CodexAppServerClient {
     this.activeTurn = undefined;
     this.pendingRequest = undefined;
     await rm(this.statePath, { force: true });
+  }
+
+  private async findAgentsFile(): Promise<string | undefined> {
+    const filePath = path.join(this.workingDir, "AGENTS.md");
+    try {
+      await access(filePath);
+      return "AGENTS.md";
+    } catch {
+      return undefined;
+    }
+  }
+
+  private applyRuntimeSettings(value: unknown): void {
+    const object = objectValue(value);
+    if (!object) {
+      return;
+    }
+    const settings = objectValue(object.settings)
+      ?? objectValue(object.threadSettings)
+      ?? objectValue(object.thread_settings)
+      ?? object;
+    this.currentModel = stringValue(settings.model) ?? stringValue(object.model) ?? this.currentModel;
+    this.reasoningEffort = reasoningEffortValue(settings.effort ?? settings.reasoningEffort ?? settings.reasoning_effort) ?? this.reasoningEffort;
+    this.approvalPolicy = stringValue(settings.approvalPolicy) ?? stringValue(settings.approval_policy) ?? stringValue(object.approvalPolicy) ?? this.approvalPolicy;
+    this.sandboxPolicy = stringValue(settings.sandbox) ?? stringValue(settings.sandboxPolicy) ?? stringValue(settings.sandbox_policy) ?? stringValue(object.sandbox) ?? this.sandboxPolicy;
+    this.modelProvider = stringValue(settings.modelProvider)
+      ?? stringValue(settings.model_provider)
+      ?? stringValue(settings.modelProviderId)
+      ?? stringValue(settings.model_provider_id)
+      ?? stringValue(object.modelProvider)
+      ?? stringValue(object.model_provider)
+      ?? this.modelProvider;
+    const provider = objectValue(settings.modelProviderInfo) ?? objectValue(settings.model_provider_info);
+    this.modelProviderBaseUrl = stringValue(provider?.baseUrl)
+      ?? stringValue(provider?.base_url)
+      ?? stringValue(settings.modelProviderBaseUrl)
+      ?? stringValue(settings.model_provider_base_url)
+      ?? this.modelProviderBaseUrl;
+    this.permissions = stringValue(settings.permissionProfile)
+      ?? stringValue(settings.permission_profile)
+      ?? stringValue(settings.activePermissionProfile)
+      ?? stringValue(settings.active_permission_profile)
+      ?? this.permissions;
+    this.collaborationMode = stringValue(settings.collaborationMode)
+      ?? stringValue(settings.collaboration_mode)
+      ?? this.collaborationMode;
   }
 
   private async startTurnRequest(prompt: string): Promise<void> {
@@ -1009,6 +1086,7 @@ export class CodexAppServerClient {
     const params = objectValue(message.params) ?? {};
     switch (message.method) {
       case "turn/started":
+        this.applyRuntimeSettings(params);
         if (this.activeTurn) {
           const turn = objectValue(params.turn);
           this.activeTurn.turnId = stringValue(turn?.id);
@@ -1017,6 +1095,10 @@ export class CodexAppServerClient {
             body: stringValue(turn?.id) ? `Turn: ${stringValue(turn?.id)}` : undefined
           });
         }
+        return;
+      case "thread/started":
+      case "thread/status/changed":
+        this.applyRuntimeSettings(params);
         return;
       case "item/agentMessage/delta":
         if (this.activeTurn) {
@@ -1076,8 +1158,7 @@ export class CodexAppServerClient {
         return;
       case "thread/settings/updated": {
         const settings = objectValue(params.settings) ?? params;
-        this.currentModel = stringValue(settings.model) ?? this.currentModel;
-        this.reasoningEffort = reasoningEffortValue(settings.effort ?? settings.reasoning_effort) ?? this.reasoningEffort;
+        this.applyRuntimeSettings(settings);
         await this.persistState();
         await this.callbacks.onProcessUpdate?.({
           title: "Settings updated",

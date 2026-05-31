@@ -1008,7 +1008,8 @@ function formatOfficialCodexStatus(status: CodexOfficialStatus): string {
   const config = status.config;
   const authMode = stringValue(account?.authMode)
     ?? stringValue(account?.mode)
-    ?? stringValue(account?.type);
+    ?? stringValue(account?.type)
+    ?? stringValue(objectValue(account?.account)?.type);
   const accountEmail = stringValue(account?.email)
     ?? stringValue(account?.userEmail)
     ?? stringValue(account?.accountEmail);
@@ -1018,21 +1019,89 @@ function formatOfficialCodexStatus(status: CodexOfficialStatus): string {
   const serviceTier = stringValue(config?.serviceTier)
     ?? stringValue(config?.service_tier);
   const rateLimitSummary = formatRateLimitSummary(rateLimits);
+  const modelText = [
+    status.model,
+    status.reasoningEffort ? `reasoning ${status.reasoningEffort}` : undefined
+  ].filter(Boolean).join(" (").replace(/\(([^)]*)$/, "($1)");
+  const providerText = [
+    status.modelProvider,
+    status.modelProviderBaseUrl
+  ].filter(Boolean).join(" - ");
+  const tokenUsage = formatTokenUsage(status);
+  const contextWindow = formatContextWindow(status);
   return [
-    status.model ? `Model: ${status.model}` : undefined,
-    status.reasoningEffort ? `Reasoning: ${formatReasoningEffort(status.reasoningEffort)}` : undefined,
-    `Working directory: ${status.cwd}`,
+    "Visit https://chatgpt.com/codex/settings/usage for up-to-date information on rate limits and credits",
+    modelText ? `Model: ${modelText}` : undefined,
+    providerText ? `Model provider: ${providerText}` : undefined,
+    `Directory: ${status.cwd}`,
+    `Permissions: ${formatPermissions(status)}`,
+    status.agentsFile ? `Agents.md: ${status.agentsFile}` : undefined,
+    `Account: ${formatAccountStatus(accountEmail, plan, authMode)}`,
+    status.collaborationMode ? `Collaboration mode: ${formatStatusValue(status.collaborationMode)}` : undefined,
+    status.threadId ? `Session: ${status.threadId}` : undefined,
+    tokenUsage ? `Token usage: ${tokenUsage}` : undefined,
+    contextWindow ? `Context window: ${contextWindow}` : undefined,
+    rateLimitSummary ? `Limits: ${rateLimitSummary}` : "Limits: not available for this account",
     status.approvalPolicy ? `Approval policy: ${status.approvalPolicy}` : undefined,
     status.sandboxPolicy ? `Sandbox: ${status.sandboxPolicy}` : undefined,
     serviceTier ? `Service tier: ${serviceTier}` : undefined,
-    authMode || accountEmail || plan
-      ? `Account: ${[accountEmail, plan, authMode].filter(Boolean).join(" · ")}`
-      : undefined,
-    rateLimitSummary ? `Rate limits: ${rateLimitSummary}` : undefined,
-    status.contextUsedTokens != null && status.contextWindowTokens != null
-      ? `Context: ${status.contextUsedTokens}/${status.contextWindowTokens}`
-      : undefined
   ].filter(Boolean).join("\n");
+}
+
+function formatPermissions(status: CodexOfficialStatus): string {
+  const value = status.permissions ?? status.sandboxPolicy ?? status.approvalPolicy;
+  if (status.sandboxPolicy === "danger-full-access" || value === "danger-full-access" || value === "full-access") {
+    return "Full Access";
+  }
+  if (status.sandboxPolicy === "workspace-write") {
+    return "Workspace Write";
+  }
+  if (status.sandboxPolicy === "read-only") {
+    return "Read Only";
+  }
+  return value ? formatStatusValue(value) : "not available";
+}
+
+function formatTokenUsage(status: CodexOfficialStatus): string | undefined {
+  if (status.contextUsedTokens == null) {
+    return undefined;
+  }
+  return `${formatTokenCount(status.contextUsedTokens)} total`;
+}
+
+function formatAccountStatus(accountEmail: string | undefined, plan: string | undefined, authMode: string | undefined): string {
+  if (authMode === "apiKey") {
+    return "API key configured";
+  }
+  if (authMode || accountEmail || plan) {
+    return [accountEmail, plan, authMode].filter(Boolean).join(" · ");
+  }
+  return "not available";
+}
+
+function formatContextWindow(status: CodexOfficialStatus): string | undefined {
+  if (status.contextUsedTokens == null || status.contextWindowTokens == null || status.contextWindowTokens <= 0) {
+    return undefined;
+  }
+  const left = Math.max(0, status.contextWindowTokens - status.contextUsedTokens);
+  const percent = Math.round((left / status.contextWindowTokens) * 100);
+  return `${percent}% left (${formatTokenCount(status.contextUsedTokens)} used / ${formatTokenCount(status.contextWindowTokens)})`;
+}
+
+function formatTokenCount(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M`;
+  }
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return String(value);
+}
+
+function formatStatusValue(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function formatRateLimitSummary(value: Record<string, unknown> | undefined): string | undefined {
