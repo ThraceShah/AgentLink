@@ -196,14 +196,17 @@ textarea {
 
 .screen-chat {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
   padding-left: 0;
   padding-right: 0;
+  overflow-x: hidden;
 }
 
 .chat-header {
   padding: 0 16px;
+  min-width: 0;
 }
 
 .chat-title {
@@ -222,7 +225,10 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
+  max-width: 100vw;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 4px 16px 12px;
 }
 
@@ -233,6 +239,8 @@ textarea {
 }
 
 .message {
+  box-sizing: border-box;
+  min-width: 0;
   max-width: 88%;
   padding: 10px 12px;
   border-radius: 8px;
@@ -255,6 +263,15 @@ textarea {
 
 .message p {
   margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message a,
+.message code,
+.message pre {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
@@ -301,6 +318,7 @@ textarea {
 }
 
 .composer {
+  min-width: 0;
   padding: 10px 16px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: rgba(16, 20, 24, 0.96);
