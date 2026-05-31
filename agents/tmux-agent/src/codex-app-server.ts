@@ -149,6 +149,11 @@ export type CodexOfficialStatus = {
   config?: Record<string, unknown>;
   contextUsedTokens?: number;
   contextWindowTokens?: number;
+  totalTokens?: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
 };
 
 type ActiveTurn = {
@@ -214,6 +219,13 @@ export class CodexAppServerClient {
   private collaborationMode?: string;
   private contextUsedTokens?: number;
   private contextWindowTokens?: number;
+  private tokenUsageBreakdown: {
+    totalTokens?: number;
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    outputTokens?: number;
+    reasoningOutputTokens?: number;
+  } = {};
   private goal?: CodexGoal | null;
   private activeTurn?: ActiveTurn;
   private pendingRequest?: PendingApprovalRequest | PendingInputRequest;
@@ -453,6 +465,7 @@ export class CodexAppServerClient {
 
   async getOfficialStatus(): Promise<CodexOfficialStatus> {
     await this.start();
+    await this.refreshTokenUsageFromRollout();
     const [account, rateLimits, config] = await Promise.all([
       this.optionalRequest("account/read", {}),
       this.optionalRequest("account/rateLimits/read", {}),
@@ -483,7 +496,8 @@ export class CodexAppServerClient {
       rateLimits: objectValue(rateLimits),
       config: configBody,
       contextUsedTokens: this.contextUsedTokens,
-      contextWindowTokens: this.contextWindowTokens
+      contextWindowTokens: this.contextWindowTokens,
+      ...this.tokenUsageBreakdown
     };
   }
 
@@ -904,6 +918,63 @@ export class CodexAppServerClient {
     }
   }
 
+  private async refreshTokenUsageFromRollout(): Promise<void> {
+    if (!this.threadId) {
+      return;
+    }
+    const readResult = await this.optionalRequest("thread/read", {
+      threadId: this.threadId
+    });
+    const thread = objectValue(objectValue(readResult)?.thread);
+    const rolloutPath = stringValue(thread?.path);
+    if (!rolloutPath) {
+      return;
+    }
+    let content = "";
+    try {
+      content = await readFile(rolloutPath, "utf8");
+    } catch {
+      return;
+    }
+    for (const line of content.trimEnd().split("\n").reverse()) {
+      if (!line.includes("\"token_count\"")) {
+        continue;
+      }
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        const payload = objectValue(entry.payload);
+        if (payload?.type !== "token_count") {
+          continue;
+        }
+        this.applyTokenUsageFromEvent(payload);
+        return;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  private applyTokenUsageFromEvent(payload: Record<string, unknown>): void {
+    const info = objectValue(payload.info);
+    const total = objectValue(info?.total_token_usage) ?? objectValue(info?.totalTokenUsage);
+    const last = objectValue(info?.last_token_usage) ?? objectValue(info?.lastTokenUsage);
+    const totalTokens = numberValue(total?.total_tokens) ?? numberValue(total?.totalTokens);
+    const lastTokens = numberValue(last?.total_tokens) ?? numberValue(last?.totalTokens);
+    const modelContextWindow = numberValue(info?.model_context_window)
+      ?? numberValue(info?.modelContextWindow)
+      ?? numberValue(payload.model_context_window)
+      ?? numberValue(payload.modelContextWindow);
+    this.contextUsedTokens = lastTokens ?? totalTokens ?? this.contextUsedTokens;
+    this.contextWindowTokens = modelContextWindow ?? this.contextWindowTokens;
+    this.tokenUsageBreakdown = {
+      totalTokens,
+      inputTokens: numberValue(total?.input_tokens) ?? numberValue(total?.inputTokens),
+      cachedInputTokens: numberValue(total?.cached_input_tokens) ?? numberValue(total?.cachedInputTokens),
+      outputTokens: numberValue(total?.output_tokens) ?? numberValue(total?.outputTokens),
+      reasoningOutputTokens: numberValue(total?.reasoning_output_tokens) ?? numberValue(total?.reasoningOutputTokens)
+    };
+  }
+
   private applyRuntimeSettings(value: unknown): void {
     const object = objectValue(value);
     if (!object) {
@@ -1125,6 +1196,13 @@ export class CodexAppServerClient {
         const total = objectValue(usage?.total);
         this.contextUsedTokens = numberValue(total?.totalTokens);
         this.contextWindowTokens = numberValue(usage?.modelContextWindow);
+        this.tokenUsageBreakdown = {
+          totalTokens: numberValue(total?.totalTokens),
+          inputTokens: numberValue(total?.inputTokens),
+          cachedInputTokens: numberValue(total?.cachedInputTokens),
+          outputTokens: numberValue(total?.outputTokens),
+          reasoningOutputTokens: numberValue(total?.reasoningOutputTokens)
+        };
         if (this.contextUsedTokens != null && this.contextWindowTokens != null) {
           await this.callbacks.onProcessUpdate?.({
             title: "Context updated",

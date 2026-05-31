@@ -1063,10 +1063,17 @@ function formatPermissions(status: CodexOfficialStatus): string {
 }
 
 function formatTokenUsage(status: CodexOfficialStatus): string | undefined {
-  if (status.contextUsedTokens == null) {
+  if (status.totalTokens == null && status.contextUsedTokens == null) {
     return undefined;
   }
-  return `${formatTokenCount(status.contextUsedTokens)} total`;
+  const totalTokens = status.totalTokens ?? status.contextUsedTokens;
+  return [
+    totalTokens != null ? `${formatTokenCount(totalTokens)} total` : undefined,
+    status.inputTokens != null ? `${formatTokenCount(status.inputTokens)} input` : undefined,
+    status.cachedInputTokens != null ? `${formatTokenCount(status.cachedInputTokens)} cached` : undefined,
+    status.outputTokens != null ? `${formatTokenCount(status.outputTokens)} output` : undefined,
+    status.reasoningOutputTokens != null ? `${formatTokenCount(status.reasoningOutputTokens)} reasoning` : undefined
+  ].filter(Boolean).join("  ");
 }
 
 function formatAccountStatus(accountEmail: string | undefined, plan: string | undefined, authMode: string | undefined): string {
