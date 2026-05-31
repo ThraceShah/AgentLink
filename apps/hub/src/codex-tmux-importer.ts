@@ -20,6 +20,7 @@ export type CodexTmuxCandidate = {
   panePid: number;
   command: string;
   args: string;
+  codexPid: number;
   cwd: string;
   threadId: string;
   title: string;
@@ -85,6 +86,7 @@ export class CodexTmuxImporter {
         panePid: pane.panePid,
         command: codexProcess.command,
         args: codexProcess.args,
+        codexPid: codexProcess.pid,
         cwd: pane.cwd,
         threadId: thread.id,
         title: thread.title || thread.preview || "Codex session",
@@ -141,14 +143,10 @@ export class CodexTmuxImporter {
 
   private async listCodexThreads(): Promise<CodexThreadRecord[]> {
     const dbPath = path.join(homedir(), ".codex", "state_5.sqlite");
-    const query = [
-      ".mode tabs",
-      ".headers off",
-      "select id, cwd, title, preview, model, reasoning_effort, rollout_path, updated_at_ms from threads where archived = 0 order by updated_at_ms desc limit 200;"
-    ].join("\n");
+    const query = "select id, cwd, title, preview, model, reasoning_effort, rollout_path, updated_at_ms from threads where archived = 0 order by updated_at_ms desc limit 200;";
     let stdout: string;
     try {
-      const result = await execFileAsync("sqlite3", [dbPath, query], { encoding: "utf8" });
+      const result = await execFileAsync("sqlite3", ["-separator", "\t", dbPath, query], { encoding: "utf8" });
       stdout = result.stdout;
     } catch {
       return [];

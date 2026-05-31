@@ -133,8 +133,12 @@ export class SessionManager {
       throw new Error("codex profile is unavailable");
     }
 
-    if (input.mode === "takeover" && await this.tmuxSessionExists(candidate.tmuxSession)) {
-      await execFileAsync("tmux", ["kill-session", "-t", candidate.tmuxSession], { encoding: "utf8" });
+    if (input.mode === "takeover") {
+      try {
+        process.kill(candidate.codexPid, "SIGTERM");
+      } catch {
+        // Ignore missing Codex TUI process.
+      }
     }
 
     await mkdir(candidate.cwd, { recursive: true });
