@@ -26,6 +26,7 @@ describe("protocol helpers", () => {
     expect(deriveStatusFromEvent("task_running")).toBe("busy");
     expect(deriveStatusFromEvent("process_delta")).toBe("busy");
     expect(deriveStatusFromEvent("assistant_completed")).toBe("completed");
+    expect(deriveStatusFromEvent("need_approval")).toBe("waiting_input");
     expect(deriveStatusFromEvent("task_failed")).toBe("failed");
   });
 

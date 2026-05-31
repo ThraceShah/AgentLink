@@ -115,3 +115,4 @@
 - 修正 Codex `/status` 与 AgentLink 自定义状态的语义边界：`/status` 现在展示 Codex 官方状态口径，`/iris-status` 和 `/iris_status` 保留为 AgentLink bridge 状态。
 - 补齐移动 Web `/status` 的 Codex 状态信息：增加模型 provider、权限、AGENTS.md、账号、协作模式、session、limits、sandbox 等字段，使其更接近 Codex TUI 的 `/status` 面板。
 - 修复移动 Web `/status` 的 token usage 与 context window 缺失问题：从当前 Codex rollout 历史回填最近 token_count，并区分累计 token usage 与当前 context window 占用。
+- 新增移动 Web Codex 审批可见性：Codex app-server 待审批请求会作为 `need_approval` 明确进入时间线，聊天页和输入区提供本轮批准与会话级批准按钮，避免会话停在 `busy` 状态时被误判为卡死。

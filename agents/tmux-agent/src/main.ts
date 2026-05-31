@@ -1321,6 +1321,18 @@ async function emitCodexPendingRequest(request: CodexPendingRequest): Promise<vo
   lastMenuItemsHash = items.map((item) => item.id).join("|");
   activeMenuSelectedIndex = undefined;
   latestReply = request.body;
+  await runtime.emitEvent({
+    eventType: "need_approval",
+    title: request.title,
+    body: request.body,
+    status: "waiting_input",
+    metadata: {
+      ...codexMetadata(),
+      pendingRequestKind: request.kind,
+      pendingMenuId: menuId,
+      allowForSession: request.allowForSession
+    }
+  });
   await runtime.emitTuiMenu(menuId, request.title, items, request.body);
 }
 

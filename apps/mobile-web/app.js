@@ -19,7 +19,8 @@ const state = {
   pendingImport: null,
   activeCommand: null,
   modelOptions: [],
-  selectedModelId: null
+  selectedModelId: null,
+  dismissedApprovalEventIds: new Set()
 };
 
 const els = {
@@ -267,9 +268,13 @@ function renderAgents() {
   }
 
   for (const agent of agents) {
+    const pendingApproval = latestPendingApproval(agent.agentId);
     const node = els.agentTemplate.content.firstElementChild.cloneNode(true);
+    node.classList.toggle("needs-approval", Boolean(pendingApproval));
     node.querySelector("strong").textContent = agent.displayName;
-    node.querySelector("small").textContent = agent.lastMessage || `${agent.kind} · ${agent.status}`;
+    node.querySelector("small").textContent = pendingApproval
+      ? `Approval needed · ${eventDisplayText(pendingApproval)}`
+      : agent.lastMessage || `${agent.kind} · ${agent.status}`;
     node.querySelector(".agent-meta").textContent = shortTime(lastActivity(agent));
     node.addEventListener("click", () => selectAgent(agent.agentId));
     els.agentList.append(node);
@@ -281,8 +286,11 @@ function renderChat() {
   if (!agent) {
     return;
   }
+  const pendingApproval = latestPendingApproval(agent.agentId);
   els.chatTitle.textContent = agent.displayName;
-  els.chatSubtitle.textContent = `${agent.kind} · ${agent.status} · ${state.socketState === "live" ? "Live" : "Fallback"}`;
+  els.chatSubtitle.textContent = pendingApproval
+    ? `${agent.kind} · approval needed · ${state.socketState === "live" ? "Live" : "Fallback"}`
+    : `${agent.kind} · ${agent.status} · ${state.socketState === "live" ? "Live" : "Fallback"}`;
   els.timeline.replaceChildren();
 
   const visibleEvents = eventsFor(agent.agentId).filter(isVisibleEvent);
@@ -292,7 +300,7 @@ function renderChat() {
     empty.className = "empty-state";
     empty.textContent = "Send a message or use a slash command.";
     els.timeline.append(empty);
-    renderRuntimeStrip(agent);
+    renderRuntimeStrip(agent, pendingApproval);
     return;
   }
 
@@ -302,7 +310,7 @@ function renderChat() {
   requestAnimationFrame(() => {
     els.timeline.scrollTop = els.timeline.scrollHeight;
   });
-  renderRuntimeStrip(agent);
+  renderRuntimeStrip(agent, pendingApproval);
 }
 
 function renderTimelineItem(item, agent) {
@@ -360,7 +368,8 @@ function renderEvent(event, agent) {
   const item = document.createElement("article");
   const isUser = event.eventType === "user_command";
   const displayText = eventDisplayText(event) ?? event.eventType;
-  item.className = `message ${isUser ? "user" : "agent"}`;
+  const isApproval = event.eventType === "need_approval";
+  item.className = `message ${isUser ? "user" : "agent"}${isApproval ? " approval" : ""}`;
   item.title = "Tap to copy";
   item.addEventListener("click", () => copyText(displayText));
 
@@ -372,6 +381,10 @@ function renderEvent(event, agent) {
   const body = document.createElement("p");
   body.textContent = displayText;
   item.append(body);
+
+  if (isApproval) {
+    item.append(renderApprovalActions(event, agent.agentId));
+  }
 
   if (event.artifact?.kind === "image") {
     const img = document.createElement("img");
@@ -388,7 +401,42 @@ function renderEvent(event, agent) {
   return item;
 }
 
-function renderRuntimeStrip(agent) {
+function renderApprovalActions(event, agentId) {
+  const actions = document.createElement("div");
+  actions.className = "approval-actions";
+  const allow = document.createElement("button");
+  allow.type = "button";
+  allow.textContent = "Approve";
+  allow.addEventListener("click", (clickEvent) => {
+    clickEvent.stopPropagation();
+    approveRequest(agentId, event, "turn");
+  });
+  actions.append(allow);
+  if (event.metadata?.allowForSession === true) {
+    const allowSession = document.createElement("button");
+    allowSession.type = "button";
+    allowSession.textContent = "Allow session";
+    allowSession.addEventListener("click", (clickEvent) => {
+      clickEvent.stopPropagation();
+      approveRequest(agentId, event, "session");
+    });
+    actions.append(allowSession);
+  }
+  return actions;
+}
+
+function renderRuntimeStrip(agent, pendingApproval = null) {
+  els.runtimeStrip.replaceChildren();
+  if (pendingApproval) {
+    const bar = document.createElement("div");
+    bar.className = "approval-strip";
+    const label = document.createElement("span");
+    label.textContent = "Approval needed";
+    bar.append(label);
+    bar.append(renderApprovalActions(pendingApproval, agent.agentId));
+    els.runtimeStrip.append(bar);
+    return;
+  }
   const metadata = latestRuntimeMetadata(agent.agentId);
   const model = stringValue(metadata?.model) || agent.kind;
   const effort = stringValue(metadata?.reasoningEffort);
@@ -678,6 +726,24 @@ function eventsFor(agentId) {
 
 function selectedAgent() {
   return state.agents.find((agent) => agent.agentId === state.selectedAgentId) ?? null;
+}
+
+function latestPendingApproval(agentId) {
+  const events = eventsFor(agentId);
+  const approval = events
+    .filter((event) => event.eventType === "need_approval" && !state.dismissedApprovalEventIds.has(event.id))
+    .at(-1);
+  if (!approval) {
+    return null;
+  }
+  const approvalIndex = events.findIndex((event) => event.id === approval.id);
+  const laterCompletion = events.slice(approvalIndex + 1).some((event) =>
+    event.eventType === "task_running"
+    || event.eventType === "process_completed"
+    || event.eventType === "text_output"
+    || (event.eventType === "need_user_input" && event.status === "waiting_input")
+  );
+  return laterCompletion ? null : approval;
 }
 
 function selectAgent(agentId) {
@@ -1117,6 +1183,36 @@ async function sendCommand(agentId, type, text, args) {
     });
   } catch (error) {
     toast(error.message || "Command failed");
+  }
+}
+
+async function approveRequest(agentId, event, scope) {
+  try {
+    const menuId = stringValue(event.metadata?.pendingMenuId);
+    if (menuId && state.socket?.readyState === WebSocket.OPEN) {
+      state.socket.send(JSON.stringify({
+        type: "tui_menu_select",
+        agentId,
+        menuId,
+        itemId: scope === "session" ? "__allow_session__" : "__allow__"
+      }));
+    } else {
+      await api("/api/commands", {
+        method: "POST",
+        body: JSON.stringify({
+          agentId,
+          command: {
+            id: createId("cmd"),
+            type: "approve",
+            text: scope === "session" ? "session" : undefined
+          }
+        })
+      });
+    }
+    state.dismissedApprovalEventIds.add(event.id);
+    render();
+  } catch (error) {
+    toast(error.message || "Approval failed");
   }
 }
 
