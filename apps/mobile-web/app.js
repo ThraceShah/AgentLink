@@ -15,7 +15,8 @@ const state = {
   pollTimer: null,
   reconnectTimer: null,
   heartbeatTimer: null,
-  expandedProcesses: new Set()
+  expandedProcesses: new Set(),
+  pendingImport: null
 };
 
 const els = {
@@ -50,7 +51,11 @@ const els = {
   tmuxImportMode: document.querySelector("#tmux-import-mode"),
   historyWorkdirLabel: document.querySelector("#history-workdir-label"),
   historyWorkdirInput: document.querySelector("#history-workdir-input"),
+  importNameDialog: document.querySelector("#import-name-dialog"),
+  importNameForm: document.querySelector("#import-name-form"),
   importSessionNameInput: document.querySelector("#import-session-name-input"),
+  importNameNote: document.querySelector("#import-name-note"),
+  cancelImportNameButton: document.querySelector("#cancel-import-name-button"),
   importNote: document.querySelector("#import-note"),
   refreshImportButton: document.querySelector("#refresh-import-button"),
   cancelImportButton: document.querySelector("#cancel-import-button"),
@@ -481,15 +486,11 @@ function renderCodexHistoryCandidates() {
     button.append(title, meta);
     button.addEventListener("click", () => {
       state.selectedCodexHistoryCandidateId = candidate.candidateId;
-      els.importSessionNameInput.value = `${historySessionNameBase(candidate)}-agentlink`;
       renderCodexHistoryCandidates();
     });
     els.importCandidateList.append(button);
   }
   const selected = selectedCodexHistoryCandidate();
-  if (selected && !els.importSessionNameInput.value.trim()) {
-    els.importSessionNameInput.value = `${historySessionNameBase(selected)}-agentlink`;
-  }
   updateImportSourceMode();
   const importSubmit = els.importForm.querySelector("button[type='submit']");
   if (importSubmit) {
@@ -526,17 +527,11 @@ function renderCodexImportCandidates() {
     button.append(title, meta);
     button.addEventListener("click", () => {
       state.selectedCodexImportCandidateId = candidate.candidateId;
-      if (!isTakeoverImportMode()) {
-        els.importSessionNameInput.value = `${candidate.tmuxSession}-agentlink`;
-      }
       renderCodexImportCandidates();
     });
     els.importCandidateList.append(button);
   }
   const selected = selectedCodexImportCandidate();
-  if (selected && !els.importSessionNameInput.value.trim() && !isTakeoverImportMode()) {
-    els.importSessionNameInput.value = `${selected.tmuxSession}-agentlink`;
-  }
   updateImportSessionMode();
   const importSubmit = els.importForm.querySelector("button[type='submit']");
   if (importSubmit) {
@@ -564,27 +559,13 @@ function selectedCodexHistoryCandidate() {
 }
 
 function updateImportSessionMode() {
-  const selected = selectedCodexImportCandidate();
-  if (isTakeoverImportMode()) {
-    els.importSessionNameInput.value = selected?.tmuxSession ?? "";
-    els.importSessionNameInput.disabled = true;
-  } else {
-    els.importSessionNameInput.disabled = false;
-    if (selected && (!els.importSessionNameInput.value.trim() || els.importSessionNameInput.value === selected.tmuxSession)) {
-      els.importSessionNameInput.value = `${selected.tmuxSession}-agentlink`;
-    }
-  }
+  // Import names are collected in the confirmation dialog.
 }
 
 function updateImportSourceMode() {
   const history = isHistoryImportSource();
   els.tmuxImportMode.classList.toggle("hidden", history);
   els.historyWorkdirLabel.classList.toggle("hidden", !history);
-  if (history) {
-    els.importSessionNameInput.disabled = false;
-  } else {
-    updateImportSessionMode();
-  }
 }
 
 function isTakeoverImportMode() {
@@ -895,7 +876,21 @@ async function createSession(event) {
 async function importCodexSession(event) {
   event.preventDefault();
   if (isHistoryImportSource()) {
-    await importCodexHistorySession();
+    const candidate = selectedCodexHistoryCandidate();
+    if (!candidate) {
+      toast("No Codex history selected.");
+      return;
+    }
+    if (!candidate.importable) {
+      toast(candidate.reason || "Selected Codex history is not importable.");
+      return;
+    }
+    openImportNameDialog({
+      source: "history",
+      candidate,
+      defaultSessionName: `${historySessionNameBase(candidate)}-agentlink`,
+      note: candidate.preview || candidate.title || candidate.id
+    });
     return;
   }
   const candidate = selectedCodexImportCandidate();
@@ -908,15 +903,51 @@ async function importCodexSession(event) {
     return;
   }
   const mode = document.querySelector("input[name='import-mode']:checked")?.value || "fork";
+  openImportNameDialog({
+    source: "tmux",
+    candidate,
+    mode,
+    defaultSessionName: mode === "takeover" ? candidate.tmuxSession : `${candidate.tmuxSession}-agentlink`,
+    note: candidate.preview || candidate.title || candidate.threadId
+  });
+}
+
+function openImportNameDialog(pendingImport) {
+  state.pendingImport = pendingImport;
+  els.importSessionNameInput.value = pendingImport.defaultSessionName;
+  els.importSessionNameInput.disabled = pendingImport.source === "tmux" && pendingImport.mode === "takeover";
+  els.importNameNote.textContent = truncateText(pendingImport.note || pendingImport.defaultSessionName, 140);
+  els.importNameDialog.showModal();
+  els.importSessionNameInput.focus();
+  els.importSessionNameInput.select();
+}
+
+async function confirmImportSession(event) {
+  event.preventDefault();
+  const pendingImport = state.pendingImport;
+  if (!pendingImport) {
+    els.importNameDialog.close();
+    return;
+  }
+  if (pendingImport.source === "history") {
+    await importCodexHistorySession(pendingImport.candidate, els.importSessionNameInput.value.trim());
+  } else {
+    await importCodexTmuxSession(pendingImport.candidate, pendingImport.mode, els.importSessionNameInput.value.trim());
+  }
+}
+
+async function importCodexTmuxSession(candidate, mode, sessionName) {
   try {
     const payload = await api("/api/codex/import-tmux", {
       method: "POST",
       body: JSON.stringify({
         candidateId: candidate.candidateId,
         mode,
-        sessionName: els.importSessionNameInput.value.trim()
+        sessionName
       })
     });
+    state.pendingImport = null;
+    els.importNameDialog.close();
     els.importDialog.close();
     await refreshAll();
     selectAgent(payload.sessionName);
@@ -925,25 +956,18 @@ async function importCodexSession(event) {
   }
 }
 
-async function importCodexHistorySession() {
-  const candidate = selectedCodexHistoryCandidate();
-  if (!candidate) {
-    toast("No Codex history selected.");
-    return;
-  }
-  if (!candidate.importable) {
-    toast(candidate.reason || "Selected Codex history is not importable.");
-    return;
-  }
+async function importCodexHistorySession(candidate, sessionName) {
   try {
     const payload = await api("/api/codex/import-history", {
       method: "POST",
       body: JSON.stringify({
         threadId: candidate.id,
         workdir: els.historyWorkdirInput.value.trim(),
-        sessionName: els.importSessionNameInput.value.trim()
+        sessionName
       })
     });
+    state.pendingImport = null;
+    els.importNameDialog.close();
     els.importDialog.close();
     await refreshAll();
     selectAgent(payload.sessionName);
@@ -1060,18 +1084,21 @@ els.sessionForm.addEventListener("submit", createSession);
 els.refreshImportButton.addEventListener("click", () => void refreshCodexImportCandidates());
 els.cancelImportButton.addEventListener("click", () => els.importDialog.close());
 els.importForm.addEventListener("submit", importCodexSession);
+els.cancelImportNameButton.addEventListener("click", () => {
+  state.pendingImport = null;
+  els.importNameDialog.close();
+});
+els.importNameForm.addEventListener("submit", confirmImportSession);
 for (const item of document.querySelectorAll("input[name='import-source']")) {
   item.addEventListener("change", () => {
     state.selectedCodexImportCandidateId = null;
     state.selectedCodexHistoryCandidateId = null;
-    els.importSessionNameInput.value = "";
     updateImportSourceMode();
     void refreshCodexImportCandidates();
   });
 }
 els.historyWorkdirInput.addEventListener("change", () => {
   state.selectedCodexHistoryCandidateId = null;
-  els.importSessionNameInput.value = "";
   if (isHistoryImportSource()) {
     void refreshCodexHistoryCandidates();
   }

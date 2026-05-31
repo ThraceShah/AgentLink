@@ -101,10 +101,6 @@
           <input id="history-workdir-input" autocomplete="off">
         </label>
         <div class="candidate-list" id="import-candidate-list"></div>
-        <label>
-          AgentLink session
-          <input id="import-session-name-input" autocomplete="off" required>
-        </label>
         <div class="segmented" id="tmux-import-mode">
           <label>
             <input type="radio" name="import-mode" value="fork" checked>
@@ -120,6 +116,21 @@
           <button type="button" class="text-button" id="refresh-import-button">Refresh</button>
           <button type="button" class="text-button" id="cancel-import-button">Cancel</button>
           <button type="submit">Import</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="import-name-dialog">
+      <form method="dialog" class="dialog-card" id="import-name-form">
+        <h3>Name Session</h3>
+        <label>
+          AgentLink session
+          <input id="import-session-name-input" autocomplete="off" required>
+        </label>
+        <p class="dialog-note" id="import-name-note">Confirm the AgentLink session name.</p>
+        <div class="dialog-actions">
+          <button type="button" class="text-button" id="cancel-import-name-button">Cancel</button>
+          <button type="submit">Confirm</button>
         </div>
       </form>
     </dialog>

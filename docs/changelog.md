@@ -108,3 +108,4 @@
 - 新增 Codex 历史会话导入：Web UI 可按用户指定工作目录查询本地 Codex 历史 thread，并新建 AgentLink/tmux 会话 resume 原 thread，同时导入可见对话 timeline。
 - 优化移动 Web 的 Codex 历史导入列表：候选项改为紧凑两行展示，长标题自动省略，选中长标题时不再撑破弹窗，并同步生成匹配当前候选的默认会话名。
 - 固定移动 Web 的 Codex 导入详情预览高度：AgentLink session 下方的恢复内容预览限制为三行，长内容截断显示，避免遮挡可恢复 session 列表。
+- 调整移动 Web 的 Codex 导入命名流程：第一步导入弹窗只展示可恢复 session 列表和三行预览，点击 Import 后再弹出可编辑默认 AgentLink session 名称的确认弹窗。
