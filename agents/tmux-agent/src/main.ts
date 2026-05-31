@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { AgentRuntime } from "../../../packages/sdk/src/index.js";
 import type { SlashCommandNode, TuiMenuSelect } from "../../../packages/protocol/src/index.js";
 import { buildExecCompletionResult, latestExecPreview } from "./exec-delivery.js";
-import { CodexAppServerClient, type CodexPendingRequest } from "./codex-app-server.js";
+import { CodexAppServerClient, type CodexModelOption, type CodexPendingRequest, type ReasoningEffort } from "./codex-app-server.js";
 import { resolveProviderModel } from "./model-resolver.js";
 import { parseInteractiveCapture } from "./provider-interactive.js";
 import { parseCaptureDelta, type BridgeProfile } from "./parser.js";
@@ -84,11 +84,11 @@ const qwenNativeCommands: SlashCommandNode[] = [
 ];
 
 const codexNativeCommands: SlashCommandNode[] = [
-  { id: "model", label: "model", description: "Switch model", commandType: "send_text" },
-  { id: "status", label: "status", description: "Show Codex session status", commandType: "send_text" },
-  { id: "new", label: "new", description: "Start a new Codex thread", commandType: "send_text" },
-  { id: "clear", label: "clear", description: "Clear this Hub timeline", commandType: "send_text" },
-  { id: "help", label: "help", description: "Show supported Codex commands", commandType: "send_text" }
+  { id: "model", label: "model", description: "Switch model and reasoning effort", commandType: "send_text" },
+  { id: "iris-status", label: "iris-status", description: "Show bridge session status", commandType: "send_text" },
+  { id: "iris-new-thread", label: "iris-new-thread", description: "Start a new Codex thread", commandType: "send_text" },
+  { id: "iris-clear-history", label: "iris-clear-history", description: "Clear this Hub timeline", commandType: "send_text" },
+  { id: "iris-help", label: "iris-help", description: "Show AgentLink mobile commands", commandType: "send_text" }
 ];
 
 const copilotNativeCommands: SlashCommandNode[] = [
@@ -138,7 +138,8 @@ let activeMenuId: string | undefined;
 let lastMenuItemsHash: string | undefined;
 let activeMenuSelectedIndex: number | undefined;
 let codexAppClient: CodexAppServerClient | undefined;
-let codexModelMenuItems: Array<{ id: string; label: string; description?: string }> = [];
+let codexModelMenuItems: CodexModelOption[] = [];
+let pendingCodexModelSelection: CodexModelOption | undefined;
 let activeCodexProcessId: string | undefined;
 let activeCodexProcessStartedAt = 0;
 let activeCodexProcessStepCount = 0;
@@ -803,6 +804,7 @@ function codexMetadata(): Record<string, unknown> {
     interactive: true,
     transport: "app-server",
     model: status?.currentModel ?? status?.preferredModel,
+    reasoningEffort: status?.reasoningEffort,
     contextUsedTokens: status?.contextUsedTokens,
     contextWindowTokens: status?.contextWindowTokens,
     threadId: status?.threadId
@@ -916,6 +918,7 @@ function formatCodexStatus(): string {
     `Transport: app-server`,
     status?.threadId ? `Thread: ${status.threadId}` : "Thread: not ready",
     status?.currentModel || status?.preferredModel ? `Model: ${status.currentModel ?? status.preferredModel}` : undefined,
+    status?.reasoningEffort ? `Reasoning: ${formatReasoningEffort(status.reasoningEffort)}` : undefined,
     `Working directory: ${status?.cwd ?? "unknown"}`,
     status?.approvalPolicy ? `Approval policy: ${status.approvalPolicy}` : undefined,
     status?.contextUsedTokens != null && status?.contextWindowTokens != null
@@ -942,6 +945,63 @@ async function clearHubTimeline(): Promise<void> {
 
 function runtimeAgentId(): string {
   return process.env.AGENT_ID ?? defaultAgentId(profile, sessionName);
+}
+
+async function showCodexReasoningMenu(model: CodexModelOption): Promise<void> {
+  pendingCodexModelSelection = model;
+  const efforts = model.supportedReasoningEfforts.length > 0
+    ? model.supportedReasoningEfforts
+    : defaultReasoningEfforts();
+  const items = [
+    {
+      id: "__default__",
+      label: model.defaultReasoningEffort
+        ? `Default (${formatReasoningEffort(model.defaultReasoningEffort)})`
+        : "Default",
+      description: "Use Codex default reasoning effort for this model."
+    },
+    ...efforts.map((item) => ({
+      id: item.id,
+      label: item.label,
+      description: item.description
+    })),
+    {
+      id: "__cancel__",
+      label: "Cancel"
+    }
+  ];
+  activeMenuId = "codex_reasoning";
+  lastMenuItemsHash = items.map((item) => item.id).join("|");
+  activeMenuSelectedIndex = undefined;
+  latestReply = "Select Codex reasoning effort";
+  await runtime.emitTuiMenu(
+    "codex_reasoning",
+    "Select Reasoning Effort",
+    items,
+    `Model: ${model.label}`
+  );
+}
+
+function defaultReasoningEfforts(): Array<{ id: ReasoningEffort; label: string; description?: string }> {
+  return ["none", "minimal", "low", "medium", "high", "xhigh"].map((value) => ({
+    id: value as ReasoningEffort,
+    label: formatReasoningEffort(value as ReasoningEffort)
+  }));
+}
+
+function parseReasoningEffort(value: string): ReasoningEffort | undefined {
+  return value === "none"
+    || value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh"
+    ? value
+    : undefined;
+}
+
+function formatReasoningEffort(value: ReasoningEffort): string {
+  return value === "xhigh" ? "X High" : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 }
 
 async function emitCodexPendingRequest(request: CodexPendingRequest): Promise<void> {
@@ -1030,26 +1090,26 @@ async function dispatchCodexAppPrompt(prompt: string): Promise<void> {
 async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
   const normalized = prompt.trim();
   const client = await ensureCodexAppClient();
-  if (normalized === "/status") {
+  if (normalized === "/iris-status") {
     latestReply = formatCodexStatus();
     await runtime.sendText("Codex status", latestReply);
     return;
   }
 
-  if (normalized === "/help") {
+  if (normalized === "/iris-help") {
     latestReply = [
-      "Supported Codex commands:",
-      "/model - switch model",
-      "/status - show session, thread, model, cwd and context",
-      "/new - start a new Codex thread",
-      "/clear - clear this Hub timeline",
-      "/help - show this help"
+      "Supported AgentLink Codex commands:",
+      "/model - switch Codex model and reasoning effort",
+      "/iris-status - show bridge session, thread, model, cwd and context",
+      "/iris-new-thread - start a new Codex thread",
+      "/iris-clear-history - clear this Hub timeline",
+      "/iris-help - show this help"
     ].join("\n");
     await runtime.sendText("Codex commands", latestReply);
     return;
   }
 
-  if (normalized === "/new") {
+  if (normalized === "/iris-new-thread") {
     await client.startNewThread();
     latestReply = "Started a new Codex thread.";
     await runtime.sendText("Codex thread", latestReply);
@@ -1061,7 +1121,7 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
     return;
   }
 
-  if (normalized === "/clear") {
+  if (normalized === "/iris-clear-history") {
     await clearHubTimeline();
     latestReply = "Cleared this Hub timeline. Codex thread context was not reset.";
     await runtime.sendText("Timeline cleared", latestReply);
@@ -1074,7 +1134,7 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
   }
 
   if (normalized !== "/model") {
-    await runtime.sendText(undefined, "Unsupported Codex command. Use /help for the mobile command list.");
+    await runtime.sendText(undefined, "Unsupported AgentLink Codex command. Use /iris-help for the mobile command list.");
     return;
   }
 
@@ -1084,11 +1144,8 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
     return;
   }
 
-  codexModelMenuItems = models.map((item) => ({
-    id: item.id,
-    label: item.label,
-    description: item.description
-  }));
+  codexModelMenuItems = models;
+  pendingCodexModelSelection = undefined;
   activeMenuId = "codex_model";
   lastMenuItemsHash = codexModelMenuItems.map((item) => item.id).join("|");
   activeMenuSelectedIndex = models.findIndex((item) =>
@@ -1101,7 +1158,10 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
     codexModelMenuItems.map((item) => ({
       id: item.id,
       label: item.label,
-      description: item.description
+      description: [
+        item.description,
+        item.defaultReasoningEffort ? `Default reasoning: ${formatReasoningEffort(item.defaultReasoningEffort)}` : undefined
+      ].filter(Boolean).join("\n") || undefined
     }))
   );
 }
@@ -1353,8 +1413,40 @@ runtime.onTuiMenuSelect(async (select) => {
         await runtime.sendText(undefined, "Invalid Codex model selected.");
         return;
       }
+      await showCodexReasoningMenu(selected);
+      return;
+    }
+
+    if (select.menuId === "codex_reasoning") {
+      if (select.itemId === "__cancel__") {
+        pendingCodexModelSelection = undefined;
+        resetActiveMenuState();
+        await runtime.emitEvent({
+          eventType: "need_user_input",
+          status: "waiting_input",
+          metadata: codexMetadata()
+        });
+        return;
+      }
+      const selected = pendingCodexModelSelection;
+      if (!selected) {
+        await runtime.sendText(undefined, "Model selection timed out or menu changed.");
+        return;
+      }
+      const effort = select.itemId === "__default__"
+        ? selected.defaultReasoningEffort
+        : parseReasoningEffort(select.itemId);
+      if (select.itemId !== "__default__" && !effort) {
+        await runtime.sendText(undefined, "Invalid Codex reasoning effort selected.");
+        return;
+      }
       await client.setPreferredModel(selected.id);
-      latestReply = `Codex model set to ${selected.label}.`;
+      await client.setReasoningEffort(effort);
+      latestReply = [
+        `Codex model set to ${selected.label}.`,
+        effort ? `Reasoning effort set to ${formatReasoningEffort(effort)}.` : "Reasoning effort set to model default."
+      ].join("\n");
+      pendingCodexModelSelection = undefined;
       resetActiveMenuState();
       await runtime.emitEvent({
         eventType: "text_output",

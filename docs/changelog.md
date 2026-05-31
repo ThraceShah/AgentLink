@@ -4,8 +4,10 @@
 
 ## Unreleased
 
+- 修正 Codex slash command 语义边界：`/model` 现在按官方语义提供模型与 reasoning effort 两级选择；AgentLink 自定义命令改为 `/iris-status`、`/iris-new-thread`、`/iris-clear-history`、`/iris-help`，避免占用官方命令名。
+- 优化 Codex app-server 错误展示：活跃 turn 中的 app-server `error` 通知现在作为过程信息记录，不再重复落多条泛化 `Codex app-server reported an error.`；真实失败原因仍由 `turn/completed` 的失败信息落到最终 `task_failed`。
 - 完成 Codex 移动端消息策略升级：Codex app-server 会话现在会把在线过程流、assistant 草稿、完成摘要和最终回复拆成独立事件，Hub 支持 transient 事件只广播不持久化，移动 Web 会将过程消息折叠展示并保留最终回复通知语义。
-- 扩展 Codex 移动端原生 slash command：`/model`、`/status`、`/new`、`/clear`、`/help` 现在通过 app-server/Hub 原生能力实现，不再透明转发未知 Codex TUI 命令。
+- 扩展 Codex 移动端原生 slash command：`/model`、`/iris-status`、`/iris-new-thread`、`/iris-clear-history`、`/iris-help` 现在通过 app-server/Hub 原生能力实现，不再透明转发未知 Codex TUI 命令。
 - 规划 Codex 移动端消息与 slash command 升级：明确 `codex app-server` 桥接下的过程消息、最终回复、通知、持久化和原生命令白名单策略。
 - 修复 Codex app-server 会话重建后离线的问题：bridge 不再把旧 `threadId` 从本地 state 直接视为有效线程，遇到 Codex 返回 `thread not found` 时会清理旧 state、重新创建 thread 并重试当前 turn，避免同名 Web 会话创建后发送消息导致 bridge 崩溃离线。
 - 修复移动 Web 时间线展示：无正文且无产物的 `need_user_input` 现在只作为会话等待输入状态，不再显示成聊天消息，也不会触发浏览器通知。

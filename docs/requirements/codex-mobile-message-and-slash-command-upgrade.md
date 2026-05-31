@@ -49,11 +49,11 @@
 
 Codex app-server 模式采用白名单原生实现，不透明转发未知命令。
 
-- `/model`：列出模型并切换，保持现有行为。
-- `/status`：返回当前 session、thread、model、cwd、approval policy 和 context usage。
-- `/new`：创建新的 Codex thread，清理当前 Codex thread 状态，但不删除 Hub session。
-- `/clear`：清理 Hub 当前 session 的本地时间线，不重置 Codex thread。
-- `/help`：列出当前移动端支持的 Codex 原生命令。
+- `/model`：对齐 Codex 官方语义，列出模型，并在模型选择后继续选择该模型支持的 reasoning effort。
+- `/iris-status`：返回当前 session、thread、model、reasoning effort、cwd、approval policy 和 context usage。
+- `/iris-new-thread`：创建新的 Codex thread，清理当前 Codex thread 状态，但不删除 Hub session。
+- `/iris-clear-history`：清理 Hub 当前 session 的本地时间线，不重置 Codex thread。
+- `/iris-help`：列出当前移动端支持的 AgentLink 自定义命令。
 
 ## 非目标
 
@@ -68,6 +68,7 @@ Codex app-server 模式采用白名单原生实现，不透明转发未知命令
 - 过程消息在线时可持续更新，完成后默认折叠，可展开查看详情。
 - 刷新页面后不会恢复完整过程流，但会保留过程完成摘要和最终回复。
 - 最终回复完成后触发浏览器通知；过程更新不触发通知。
-- Web UI 支持 `/model`、`/status`、`/new`、`/clear`、`/help`。
-- `/clear` 后当前 Web timeline 被清空；`/new` 后 Codex 后续消息进入新 thread。
+- Web UI 支持 `/model`、`/iris-status`、`/iris-new-thread`、`/iris-clear-history`、`/iris-help`。
+- `/model` 可完成模型与 reasoning effort 两级选择。
+- `/iris-clear-history` 后当前 Web timeline 被清空；`/iris-new-thread` 后 Codex 后续消息进入新 thread。
 - Hub、协议单元测试和 Web UI 模拟器测试通过。

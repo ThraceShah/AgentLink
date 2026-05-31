@@ -18,7 +18,7 @@ Hub 协议当前以 `timeline_event` 为主，所有事件默认持久化到内�
 1. 协议与 Hub
    - 扩展 `eventType`。
    - Hub 对 `metadata.transient === true` 的事件只广播，不写入 store。
-   - 增加清理单个 agent timeline 的 HTTP API，供 `/clear` 使用。
+   - 增加清理单个 agent timeline 的 HTTP API，供 `/iris-clear-history` 使用。
 
 2. SDK
    - 允许 agent 设置 `metadata` 和新事件类型。
@@ -31,9 +31,10 @@ Hub 协议当前以 `timeline_event` 为主，所有事件默认持久化到内�
    - 最终回复仍作为 `text_output` 持久事件。
 
 4. Slash Command
-   - 将 Codex 原生命令白名单扩展为 `/model`、`/status`、`/new`、`/clear`、`/help`。
-   - `/clear` 调用 Hub 清理本 session timeline。
-   - `/new` 重置 Codex app-server thread 状态。
+   - 保留官方 `/model`，并对齐模型与 reasoning effort 选择语义。
+   - 自定义命令使用 `/iris-status`、`/iris-new-thread`、`/iris-clear-history`、`/iris-help`，避免与官方 Codex slash command 名称冲突。
+   - `/iris-clear-history` 调用 Hub 清理本 session timeline。
+   - `/iris-new-thread` 重置 Codex app-server thread 状态。
 
 5. Web UI
    - 本地保留 transient 事件，轮询 bootstrap 时不覆盖正在进行的 transient 过程。

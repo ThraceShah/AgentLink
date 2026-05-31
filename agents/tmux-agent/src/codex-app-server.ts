@@ -38,15 +38,24 @@ type StoredCodexState = {
   threadId?: string;
   preferredModel?: string;
   currentModel?: string;
+  reasoningEffort?: ReasoningEffort;
   cwd?: string;
   approvalPolicy?: string;
 };
+
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type CodexModelOption = {
   id: string;
   label: string;
   description?: string;
   isDefault?: boolean;
+  defaultReasoningEffort?: ReasoningEffort;
+  supportedReasoningEfforts: Array<{
+    id: ReasoningEffort;
+    label: string;
+    description?: string;
+  }>;
 };
 
 export type CodexTurnUpdate = {
@@ -90,6 +99,7 @@ export type CodexSessionStatus = {
   threadId?: string;
   currentModel?: string;
   preferredModel?: string;
+  reasoningEffort?: ReasoningEffort;
   cwd: string;
   approvalPolicy?: string;
   contextUsedTokens?: number;
@@ -150,6 +160,7 @@ export class CodexAppServerClient {
   private threadId?: string;
   private currentModel?: string;
   private preferredModel?: string;
+  private reasoningEffort?: ReasoningEffort;
   private approvalPolicy?: string;
   private contextUsedTokens?: number;
   private contextWindowTokens?: number;
@@ -177,6 +188,7 @@ export class CodexAppServerClient {
       threadId: this.threadId,
       currentModel: this.currentModel,
       preferredModel: this.preferredModel,
+      reasoningEffort: this.reasoningEffort,
       cwd: this.workingDir,
       approvalPolicy: this.approvalPolicy,
       contextUsedTokens: this.contextUsedTokens,
@@ -243,11 +255,17 @@ export class CodexAppServerClient {
         if (!id || !label) {
           continue;
         }
+        const defaultReasoningEffort = reasoningEffortValue(item.defaultReasoningEffort);
+        const supportedReasoningEfforts = Array.isArray(item.supportedReasoningEfforts)
+          ? parseReasoningEffortOptions(item.supportedReasoningEfforts)
+          : [];
         models.push({
           id,
           label,
           description: stringValue(item.description),
-          isDefault: item.isDefault === true
+          isDefault: item.isDefault === true,
+          defaultReasoningEffort,
+          supportedReasoningEfforts
         });
       }
       cursor = result.nextCursor;
@@ -258,6 +276,11 @@ export class CodexAppServerClient {
   async setPreferredModel(modelId: string): Promise<void> {
     this.preferredModel = modelId;
     this.currentModel = modelId;
+    await this.persistState();
+  }
+
+  async setReasoningEffort(effort: ReasoningEffort | undefined): Promise<void> {
+    this.reasoningEffort = effort;
     await this.persistState();
   }
 
@@ -579,6 +602,7 @@ export class CodexAppServerClient {
       const parsed = JSON.parse(content) as StoredCodexState;
       this.preferredModel = this.preferredModel ?? parsed.preferredModel;
       this.currentModel = this.currentModel ?? parsed.currentModel ?? parsed.preferredModel;
+      this.reasoningEffort = this.reasoningEffort ?? reasoningEffortValue(parsed.reasoningEffort);
       this.approvalPolicy = this.approvalPolicy ?? parsed.approvalPolicy;
       return parsed;
     } catch {
@@ -591,6 +615,7 @@ export class CodexAppServerClient {
       threadId: this.threadId,
       preferredModel: this.preferredModel,
       currentModel: this.currentModel,
+      reasoningEffort: this.reasoningEffort,
       cwd: this.workingDir,
       approvalPolicy: this.approvalPolicy
     };
@@ -619,7 +644,7 @@ export class CodexAppServerClient {
       approvalsReviewer: null,
       sandboxPolicy: null,
       model: this.preferredModel ?? null,
-      effort: null,
+      effort: this.reasoningEffort ?? null,
       summary: null,
       personality: null,
       outputSchema: null,
@@ -813,8 +838,22 @@ export class CodexAppServerClient {
         await this.handleTurnCompleted(params);
         return;
       case "error":
-        await this.reportError(stringValue(params.message) ?? "Codex app-server reported an error.");
+        await this.handleErrorNotification(params);
         return;
+      case "thread/settings/updated": {
+        const settings = objectValue(params.settings) ?? params;
+        this.currentModel = stringValue(settings.model) ?? this.currentModel;
+        this.reasoningEffort = reasoningEffortValue(settings.effort ?? settings.reasoning_effort) ?? this.reasoningEffort;
+        await this.persistState();
+        await this.callbacks.onProcessUpdate?.({
+          title: "Settings updated",
+          body: [
+            this.currentModel ? `Model: ${this.currentModel}` : undefined,
+            this.reasoningEffort ? `Reasoning: ${reasoningEffortLabel(this.reasoningEffort)}` : undefined
+          ].filter(Boolean).join("\n") || undefined
+        });
+        return;
+      }
       default:
         return;
     }
@@ -846,6 +885,18 @@ export class CodexAppServerClient {
     };
     this.activeTurn = undefined;
     await this.callbacks.onTurnCompleted?.(update);
+  }
+
+  private async handleErrorNotification(params: Record<string, unknown>): Promise<void> {
+    const message = stringValue(params.message) ?? "Codex app-server reported an error.";
+    if (this.activeTurn) {
+      await this.callbacks.onProcessUpdate?.({
+        title: "Codex error",
+        body: message
+      });
+      return;
+    }
+    await this.reportError(message);
   }
 
   private async request(method: string, params: unknown): Promise<unknown> {
@@ -914,6 +965,43 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function reasoningEffortValue(value: unknown): ReasoningEffort | undefined {
+  return value === "none"
+    || value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh"
+    ? value
+    : undefined;
+}
+
+function parseReasoningEffortOptions(values: unknown[]): Array<{
+  id: ReasoningEffort;
+  label: string;
+  description?: string;
+}> {
+  const options: Array<{ id: ReasoningEffort; label: string; description?: string }> = [];
+  for (const value of values) {
+    const object = objectValue(value);
+    const id = reasoningEffortValue(object?.reasoningEffort);
+    if (!id) {
+      continue;
+    }
+    const description = stringValue(object?.description);
+    options.push({
+      id,
+      label: reasoningEffortLabel(id),
+      ...(description ? { description } : {})
+    });
+  }
+  return options;
+}
+
+function reasoningEffortLabel(value: ReasoningEffort): string {
+  return value === "xhigh" ? "X High" : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
 }
 
 function formatRpcError(error: JsonRpcError): string {
