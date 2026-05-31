@@ -252,6 +252,8 @@ textarea {
   background: var(--agent);
   border: 1px solid var(--line);
   overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .message.user {
@@ -267,7 +269,29 @@ textarea {
 }
 
 .message .meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.message .meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copy-button {
+  min-height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  background: transparent;
   color: var(--muted);
   font-size: 11px;
 }
@@ -276,6 +300,8 @@ textarea {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .message a,

@@ -370,12 +370,18 @@ function renderEvent(event, agent) {
   const displayText = eventDisplayText(event) ?? event.eventType;
   const isApproval = event.eventType === "need_approval";
   item.className = `message ${isUser ? "user" : "agent"}${isApproval ? " approval" : ""}`;
-  item.title = "Tap to copy";
-  item.addEventListener("click", () => copyText(displayText));
 
   const meta = document.createElement("div");
   meta.className = "meta";
-  meta.textContent = `${isUser ? "You" : agent.displayName} · ${shortTime(event.timestamp)}`;
+  const metaText = document.createElement("span");
+  metaText.textContent = `${isUser ? "You" : agent.displayName} · ${shortTime(event.timestamp)}`;
+  meta.append(metaText);
+  const copyButton = document.createElement("button");
+  copyButton.type = "button";
+  copyButton.className = "copy-button";
+  copyButton.textContent = "Copy";
+  copyButton.addEventListener("click", () => copyText(displayText));
+  meta.append(copyButton);
   item.append(meta);
 
   const body = document.createElement("p");

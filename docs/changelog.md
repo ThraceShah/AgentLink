@@ -116,3 +116,4 @@
 - 补齐移动 Web `/status` 的 Codex 状态信息：增加模型 provider、权限、AGENTS.md、账号、协作模式、session、limits、sandbox 等字段，使其更接近 Codex TUI 的 `/status` 面板。
 - 修复移动 Web `/status` 的 token usage 与 context window 缺失问题：从当前 Codex rollout 历史回填最近 token_count，并区分累计 token usage 与当前 context window 占用。
 - 新增移动 Web Codex 审批可见性：Codex app-server 待审批请求会作为 `need_approval` 明确进入时间线，聊天页和输入区提供本轮批准与会话级批准按钮，避免会话停在 `busy` 状态时被误判为卡死。
+- 修复移动 Web 聊天文本选择体验：移除消息整卡点击复制，改为显式 `Copy` 按钮，避免用户选中局部文字时被点击复制逻辑打断或取消选区。
