@@ -224,6 +224,7 @@ export class CodexAppServerClient {
   private contextWindowTokens?: number;
   private tokenUsageBreakdown: {
     totalTokens?: number;
+    lastTokens?: number;
     inputTokens?: number;
     cachedInputTokens?: number;
     outputTokens?: number;
@@ -971,6 +972,7 @@ export class CodexAppServerClient {
     this.contextWindowTokens = modelContextWindow ?? this.contextWindowTokens;
     this.tokenUsageBreakdown = {
       totalTokens,
+      lastTokens,
       inputTokens: numberValue(total?.input_tokens) ?? numberValue(total?.inputTokens),
       cachedInputTokens: numberValue(total?.cached_input_tokens) ?? numberValue(total?.cachedInputTokens),
       outputTokens: numberValue(total?.output_tokens) ?? numberValue(total?.outputTokens),
@@ -1197,10 +1199,16 @@ export class CodexAppServerClient {
       case "thread/tokenUsage/updated": {
         const usage = objectValue(params.tokenUsage);
         const total = objectValue(usage?.total);
-        this.contextUsedTokens = numberValue(total?.totalTokens);
+        const usedTokens = numberValue(usage?.used)
+          ?? numberValue(usage?.contextUsedTokens)
+          ?? numberValue(usage?.inputTokens)
+          ?? numberValue(total?.inputTokens)
+          ?? numberValue(total?.totalTokens);
+        this.contextUsedTokens = usedTokens;
         this.contextWindowTokens = numberValue(usage?.modelContextWindow);
         this.tokenUsageBreakdown = {
           totalTokens: numberValue(total?.totalTokens),
+          lastTokens: usedTokens,
           inputTokens: numberValue(total?.inputTokens),
           cachedInputTokens: numberValue(total?.cachedInputTokens),
           outputTokens: numberValue(total?.outputTokens),

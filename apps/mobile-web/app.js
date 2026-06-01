@@ -514,6 +514,9 @@ function contextRemainingPercent(metadata) {
   if (used == null || window == null || window <= 0) {
     return null;
   }
+  if (used > window) {
+    return null;
+  }
   return Math.max(0, Math.min(100, Math.round(((window - used) / window) * 100)));
 }
 
@@ -835,6 +838,7 @@ function navigateBackToList() {
 
 function jumpTimelineTop() {
   els.timeline.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function sessionIdFromHash() {

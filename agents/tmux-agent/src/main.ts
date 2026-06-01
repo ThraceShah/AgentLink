@@ -89,6 +89,14 @@ const qwenNativeCommands: SlashCommandNode[] = [
 
 const codexNativeCommands: SlashCommandNode[] = [
   {
+    id: "iris_cancle",
+    label: "iris_cancle",
+    description: "Cancel the active Codex turn",
+    commandType: "custom",
+    args: { codexCommand: "iris.cancel" },
+    ui: { kind: "direct" }
+  },
+  {
     id: "model",
     label: "model",
     description: "Switch model and reasoning effort",
@@ -146,6 +154,14 @@ const codexNativeCommands: SlashCommandNode[] = [
   },
   { id: "iris-status", label: "iris-status", description: "Show bridge session status", commandType: "send_text" },
   { id: "iris_status", label: "iris_status", description: "Show bridge session status", commandType: "send_text" },
+  {
+    id: "iris_cancel",
+    label: "iris_cancel",
+    description: "Alias of iris_cancle",
+    commandType: "custom",
+    args: { codexCommand: "iris.cancel" },
+    ui: { kind: "direct" }
+  },
   { id: "iris-new-thread", label: "iris-new-thread", description: "Start a new Codex thread", commandType: "send_text" },
   { id: "iris-clear-history", label: "iris-clear-history", description: "Clear this Hub timeline", commandType: "send_text" },
   { id: "iris-help", label: "iris-help", description: "Show AgentLink mobile commands", commandType: "send_text" }
@@ -1379,6 +1395,8 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
   if (normalized === "/iris-help") {
     latestReply = [
       "Supported AgentLink Codex commands:",
+      "/iris_cancle - cancel the active Codex turn",
+      "/iris_cancel - alias of /iris_cancle",
       "/model - switch Codex model and reasoning effort",
       "/goal <objective> - set or replace the active goal",
       "/goal status - show the active goal",
@@ -1395,6 +1413,22 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
       "/iris-help - show this help"
     ].join("\n");
     await runtime.sendText("Codex commands", latestReply);
+    return;
+  }
+
+  if (normalized === "/iris_cancle" || normalized === "/iris_cancel") {
+    if (await client.interruptActiveTurn()) {
+      latestReply = "Stopping Codex turn.";
+      await runtime.emitEvent({
+        eventType: "task_running",
+        body: latestReply,
+        status: "busy",
+        metadata: codexMetadata()
+      });
+    } else {
+      latestReply = "Codex is already idle.";
+      await runtime.sendText("Codex cancel", latestReply);
+    }
     return;
   }
 
@@ -1556,6 +1590,20 @@ async function dispatchCodexStructuredCommand(args: Record<string, unknown>): Pr
   const client = await ensureCodexAppClient();
   const name = typeof args.codexCommand === "string" ? args.codexCommand : "";
   switch (name) {
+    case "iris.cancel":
+      if (await client.interruptActiveTurn()) {
+        latestReply = "Stopping Codex turn.";
+        await runtime.emitEvent({
+          eventType: "task_running",
+          body: latestReply,
+          status: "busy",
+          metadata: codexMetadata()
+        });
+      } else {
+        latestReply = "Codex is already idle.";
+        await runtime.sendText("Codex cancel", latestReply);
+      }
+      return;
     case "status":
       latestReply = formatOfficialCodexStatus(await client.getOfficialStatus());
       await runtime.sendText("Codex status", latestReply);
