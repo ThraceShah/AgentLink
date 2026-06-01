@@ -116,6 +116,7 @@
 - 补齐移动 Web `/status` 的 Codex 状态信息：增加模型 provider、权限、AGENTS.md、账号、协作模式、session、limits、sandbox 等字段，使其更接近 Codex TUI 的 `/status` 面板。
 - 修复移动 Web `/status` 的 token usage 与 context window 缺失问题：从当前 Codex rollout 历史回填最近 token_count，并区分累计 token usage 与当前 context window 占用。
 - 修复移动 Web 进入聊天页时默认停留页面顶部的问题：切换到 chat 后会稳定滚动到最新消息和输入区。
+- 修复移动 Web 聊天页轮询刷新打断阅读的问题：只有用户原本接近底部时才自动贴底，手动滚到顶部后不会被刷新拉回底部。
 - 新增移动 Web Codex 审批可见性：Codex app-server 待审批请求会作为 `need_approval` 明确进入时间线，聊天页和输入区提供本轮批准与会话级批准按钮，避免会话停在 `busy` 状态时被误判为卡死。
 - 修复 Codex 会话默认权限模式：tmux bridge 启动 Codex app-server 和 `codex exec` 时默认使用 full access / never approval，避免 yolo 会话仍以 `on-request`、`workspace-write` 运行。
 - 收敛移动 Web Codex 审批展示：审批按钮仅对应真实未处理 `need_approval`，避免 busy 会话无 pending request 时点击后反复出现 `No pending Codex approval request`。

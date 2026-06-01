@@ -290,6 +290,7 @@ function renderChat() {
   if (!agent) {
     return;
   }
+  const shouldStickToBottom = isChatNearBottom();
   const pendingApproval = approvalPromptFor(agent);
   els.chatTitle.textContent = agent.displayName;
   els.chatSubtitle.textContent = pendingApproval
@@ -311,8 +312,16 @@ function renderChat() {
   for (const item of timelineItems) {
     els.timeline.append(renderTimelineItem(item, agent));
   }
-  scheduleChatBottomScroll();
+  if (shouldStickToBottom) {
+    scheduleChatBottomScroll();
+  }
   renderRuntimeStrip(agent, pendingApproval);
+}
+
+function isChatNearBottom() {
+  const timelineRemaining = els.timeline.scrollHeight - els.timeline.clientHeight - els.timeline.scrollTop;
+  const windowRemaining = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+  return timelineRemaining < 96 && windowRemaining < 96;
 }
 
 function scrollChatToBottom() {
@@ -320,7 +329,10 @@ function scrollChatToBottom() {
   window.scrollTo(0, document.documentElement.scrollHeight);
 }
 
-function scheduleChatBottomScroll() {
+function scheduleChatBottomScroll({ force = false } = {}) {
+  if (!force && !isChatNearBottom()) {
+    return;
+  }
   requestAnimationFrame(() => {
     scrollChatToBottom();
     requestAnimationFrame(scrollChatToBottom);
@@ -793,7 +805,7 @@ function selectAgent(agentId, { updateHistory = true } = {}) {
     history.pushState({ screen: "chat", agentId }, "", `#session=${encodeURIComponent(agentId)}`);
   }
   render();
-  scheduleChatBottomScroll();
+  scheduleChatBottomScroll({ force: true });
 }
 
 function showList({ updateHistory = true } = {}) {
