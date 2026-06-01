@@ -311,10 +311,21 @@ function renderChat() {
   for (const item of timelineItems) {
     els.timeline.append(renderTimelineItem(item, agent));
   }
-  requestAnimationFrame(() => {
-    els.timeline.scrollTop = els.timeline.scrollHeight;
-  });
+  scheduleChatBottomScroll();
   renderRuntimeStrip(agent, pendingApproval);
+}
+
+function scrollChatToBottom() {
+  els.timeline.scrollTop = els.timeline.scrollHeight;
+  window.scrollTo(0, document.documentElement.scrollHeight);
+}
+
+function scheduleChatBottomScroll() {
+  requestAnimationFrame(() => {
+    scrollChatToBottom();
+    requestAnimationFrame(scrollChatToBottom);
+  });
+  setTimeout(scrollChatToBottom, 80);
 }
 
 function hasTimelineTextSelection() {
@@ -782,6 +793,7 @@ function selectAgent(agentId, { updateHistory = true } = {}) {
     history.pushState({ screen: "chat", agentId }, "", `#session=${encodeURIComponent(agentId)}`);
   }
   render();
+  scheduleChatBottomScroll();
 }
 
 function showList({ updateHistory = true } = {}) {
