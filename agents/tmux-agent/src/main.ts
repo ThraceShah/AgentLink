@@ -97,6 +97,14 @@ const codexNativeCommands: SlashCommandNode[] = [
     ui: { kind: "direct" }
   },
   {
+    id: "iris_steer",
+    label: "iris_steer",
+    description: "Add instructions to the active Codex turn",
+    commandType: "custom",
+    args: { codexCommand: "iris.steer" },
+    ui: { kind: "direct" }
+  },
+  {
     id: "model",
     label: "model",
     description: "Switch model and reasoning effort",
@@ -1397,6 +1405,7 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
       "Supported AgentLink Codex commands:",
       "/iris_cancle - cancel the active Codex turn",
       "/iris_cancel - alias of /iris_cancle",
+      "/iris_steer <text> - add instructions to the active Codex turn",
       "/model - switch Codex model and reasoning effort",
       "/goal <objective> - set or replace the active goal",
       "/goal status - show the active goal",
@@ -1428,6 +1437,28 @@ async function dispatchCodexSlashCommand(prompt: string): Promise<void> {
     } else {
       latestReply = "Codex is already idle.";
       await runtime.sendText("Codex cancel", latestReply);
+    }
+    return;
+  }
+
+  const steerMatch = normalized.match(/^\/iris_steer(?:\s+([\\s\\S]+))?$/);
+  if (steerMatch) {
+    const text = (steerMatch[1] ?? "").trim();
+    if (!text) {
+      await runtime.sendText("Codex steer", "Usage: /iris_steer <text>");
+      return;
+    }
+    if (await client.steerActiveTurn(text)) {
+      latestReply = "Sent steer instructions to the active Codex turn.";
+      await runtime.emitEvent({
+        eventType: "task_running",
+        body: latestReply,
+        status: "busy",
+        metadata: codexMetadata()
+      });
+    } else {
+      latestReply = "Codex has no active turn to steer.";
+      await runtime.sendText("Codex steer", latestReply);
     }
     return;
   }
@@ -1604,6 +1635,26 @@ async function dispatchCodexStructuredCommand(args: Record<string, unknown>): Pr
         await runtime.sendText("Codex cancel", latestReply);
       }
       return;
+    case "iris.steer": {
+      const text = argString(args, "text");
+      if (!text) {
+        await runtime.sendText("Codex steer", "Usage: /iris_steer <text>");
+        return;
+      }
+      if (await client.steerActiveTurn(text)) {
+        latestReply = "Sent steer instructions to the active Codex turn.";
+        await runtime.emitEvent({
+          eventType: "task_running",
+          body: latestReply,
+          status: "busy",
+          metadata: codexMetadata()
+        });
+      } else {
+        latestReply = "Codex has no active turn to steer.";
+        await runtime.sendText("Codex steer", latestReply);
+      }
+      return;
+    }
     case "status":
       latestReply = formatOfficialCodexStatus(await client.getOfficialStatus());
       await runtime.sendText("Codex status", latestReply);

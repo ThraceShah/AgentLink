@@ -1007,6 +1007,8 @@ function customSlashArgs(node, userInput) {
     }
   } else if (command === "mcp.status" && value === "status") {
     args.codexCommand = "mcp.status";
+  } else if (command === "iris.steer") {
+    args.text = value;
   }
   return args;
 }

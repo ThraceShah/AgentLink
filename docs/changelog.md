@@ -125,3 +125,4 @@
 - 改善移动 Web 聊天导航：进入聊天页会写入浏览器历史，Android/浏览器返回键可回到会话列表；聊天底部新增返回主页和跳到顶部入口，长会话中无需滚回顶部操作。
 - 新增移动 Web Codex 取消命令：slash 列表首位提供 `/iris_cancle`，并支持 `/iris_cancel` 别名，用于中断当前正在执行的 Codex turn。
 - 修复移动 Web 聊天页 Top 按钮与 context 百分比：Top 会同时滚动页面和时间线，底部上下文百分比不再用累计 token 误算为 0%。
+- 新增移动 Web Codex steer 命令：`/iris_steer <text>` 可通过 Codex app-server 的 `turn/steer` 向当前 active turn 补充指令，无 active turn 时会返回明确提示。

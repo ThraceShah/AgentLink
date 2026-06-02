@@ -583,6 +583,29 @@ export class CodexAppServerClient {
     return true;
   }
 
+  async steerActiveTurn(text: string): Promise<boolean> {
+    await this.start();
+    const trimmed = text.trim();
+    if (!trimmed) {
+      throw new Error("Steer text must not be empty.");
+    }
+    if (!this.threadId || !this.activeTurn?.turnId) {
+      return false;
+    }
+    await this.request("turn/steer", {
+      threadId: this.threadId,
+      expectedTurnId: this.activeTurn.turnId,
+      input: [
+        {
+          type: "text",
+          text: trimmed,
+          text_elements: []
+        }
+      ]
+    });
+    return true;
+  }
+
   getPendingRequest(): CodexPendingRequest | undefined {
     const request = this.pendingRequest;
     if (!request) {
